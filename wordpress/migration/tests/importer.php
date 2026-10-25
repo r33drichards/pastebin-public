@@ -168,8 +168,31 @@ final class SqlFixture {
 function adapter(SqlFixture $db, string $prefix = 'wp_pbin_'): WpdbDestination { return new WpdbDestination($db, $prefix, hash('sha256', 'test'), 'synthetic'); }
 $db = new SqlFixture(); $destination = adapter($db); $destination->schema();
 foreach ($db->queries as $query) { check(str_starts_with($query, 'SELECT') || str_starts_with($query, 'SHOW'), 'Schema dry run mutated database'); }
-$destination->begin(); $destination->insert('pastes', $first['fields']); $destination->commit();
+$destination->begin();
+foreach ($export->data['records'] as $record) {
+    $destination->insert($record['kind'], $record['fields']);
+    $inserts = array_values(array_filter($db->queries, fn($sql) => str_starts_with($sql, 'INSERT INTO')));
+    $sql = $inserts[count($inserts) - 1];
+    check(preg_match('/[^\x20-\x7e]/', $sql) === 0, 'Raw Unicode/control bytes reached wpdb whole-query charset check');
+    preg_match_all("/CONVERT\(UNHEX\('([a-f0-9]*)'\) USING utf8mb4\)/", $sql, $matches);
+    check(array_map('hex2bin', $matches[1]) === $record['fields'], 'SQL transport changed Unicode, NUL, empty values, timestamps or IDs');
+}
+$transport = $first['fields'];
+$transport[3] = implode('', array_map('chr', range(0, 127))) . "é e\u{0301} 日本語 😀 '); DROP TABLE imaginary; -- %s";
+$destination->insert('pastes', $transport);
+$inserts = array_values(array_filter($db->queries, fn($sql) => str_starts_with($sql, 'INSERT INTO')));
+$sql = $inserts[count($inserts) - 1];
+check(preg_match('/[^\x20-\x7e]/', $sql) === 0, 'Transport is not ASCII-only');
+preg_match_all("/CONVERT\(UNHEX\('([a-f0-9]*)'\) USING utf8mb4\)/", $sql, $matches);
+check(array_map('hex2bin', $matches[1]) === $transport, 'SQL-looking/control text was normalized or interpreted');
+$destination->commit();
 check(in_array('COMMIT', $db->queries, true), 'No commit');
+$db = new SqlFixture(); $destination = adapter($db); $destination->schema();
+$invalid = $first['fields']; $invalid[3] = "\xff";
+refuses(fn() => $destination->checkInsert('pastes', $invalid));
+// Account for the expanded hex transport, not only original source bytes.
+$db->packet = 4096; $destination->schema(); $wide = $first['fields']; $wide[3] = str_repeat('x', 1600);
+refuses(fn() => $destination->checkInsert('pastes', $wide));
 refuses(fn() => adapter(new SqlFixture(), 'wp_pbin_pr_123_'));
 $db = new SqlFixture(); $db->strict = false; $destination = adapter($db); $destination->schema(); check(!$db->strict, 'Dry run enabled strict mode'); $destination->begin(); check($db->strict, 'Apply did not enable strict mode'); $destination->rollback();
 $db = new SqlFixture(); $db->triggerVisibility = false; refuses(fn() => adapter($db)->schema());

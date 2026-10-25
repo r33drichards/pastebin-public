@@ -288,7 +288,18 @@ final class WpdbDestination implements Destination {
     private function insertSQL(string $kind, array $fields, string $connection, string $guard): string {
         $table = $this->table($kind); $columns = ExportFile::COLUMNS[$kind];
         if (count($fields) !== count($columns)) { throw new MigrationException('Invalid insert shape'); }
-        return $this->sql("INSERT INTO `$table` (`" . implode('`,`', $columns) . '`) SELECT ' . implode(',', array_fill(0, count($fields), '%s')) . ' WHERE CONNECTION_ID() = %s AND @pbin_migration_guard = %s', ...array_merge($fields, [$connection, $guard]));
+        // Core wpdb conservatively classifies tables mixing ASCII IDs and
+        // utf8mb4 content as ASCII when checking an entire raw query. A quoted
+        // Unicode INSERT ... SELECT is therefore rejected before reaching MySQL.
+        // Send only ASCII hex parameters, then decode explicitly as utf8mb4 on
+        // the server. This preserves empty strings, NULs and every UTF-8 byte;
+        // it does not disable wpdb checks or alter the destination schema.
+        // checkInsert measures this expanded SQL against max_allowed_packet.
+        foreach ($fields as $field) {
+            if (!is_string($field) || preg_match('//u', $field) !== 1) { throw new MigrationException('Insert fields must be valid UTF-8 strings'); }
+        }
+        $values = array_map('bin2hex', $fields);
+        return $this->sql("INSERT INTO `$table` (`" . implode('`,`', $columns) . '`) SELECT ' . implode(',', array_fill(0, count($fields), 'CONVERT(UNHEX(%s) USING utf8mb4)')) . ' WHERE CONNECTION_ID() = %s AND @pbin_migration_guard = %s', ...array_merge($values, [$connection, $guard]));
     }
     public function checkInsert(string $kind, array $fields): void {
         if (strlen($this->insertSQL($kind, $fields, '18446744073709551615', str_repeat('a', 64))) + 1024 > $this->packet) { throw new MigrationException('Record exceeds target max_allowed_packet; no automatic splitting'); }

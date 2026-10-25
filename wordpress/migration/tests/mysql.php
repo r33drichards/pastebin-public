@@ -37,7 +37,7 @@ function fingerprints(array $exclude = []): array {
     ksort($result); return $result;
 }
 final class InterruptedDestination implements Destination {
-    private int $inserts = 0;
+    public int $inserts = 0;
     public function __construct(private Destination $inner) {}
     public function identity(): string { return $this->inner->identity(); }
     public function schema(): void { $this->inner->schema(); }
@@ -56,7 +56,9 @@ $target = new WpdbDestination($wpdb, $prefix, $targetHash, $database);
 $importer = new Importer($target); $before = fingerprints(); $plan = $importer->reconcile($export);
 verify($plan['rows']['insert'] === 5 && $plan['rows']['conflict'] === 0, 'Fixture must have no preexisting synthetic IDs');
 verify(fingerprints() === $before, 'Read-only dry run changed fixture');
-refusal(fn() => (new Importer(new InterruptedDestination($target)))->apply($export, $plan['plan_sha256'], true));
+$interrupted = new InterruptedDestination($target);
+refusal(fn() => (new Importer($interrupted))->apply($export, $plan['plan_sha256'], true));
+verify($interrupted->inserts === 3, 'Interrupted-import test failed before its intended third insert');
 verify(fingerprints() === $before, 'Mid-transaction failure left partial data');
 refusal(fn() => $importer->apply($export, str_repeat('0', 64), true)); verify(fingerprints() === $before, 'Bad plan changed data');
 $unrelated = fingerprints(array_map(fn($kind) => $prefix . $kind, array_keys(ExportFile::COLUMNS)));
@@ -64,7 +66,19 @@ $receipt = $importer->apply($export, $plan['plan_sha256'], true);
 verify($receipt['inserted_counts'] === $export->data['counts'], 'Wrong insertion counts');
 foreach ($export->data['records'] as $row) { verify($target->read($row['kind'], $row['fields'][0], false) === $row['fields'], 'Real MySQL changed IDs, Unicode, precision or relationships'); }
 verify(fingerprints(array_map(fn($kind) => $prefix . $kind, array_keys(ExportFile::COLUMNS))) === $unrelated, 'Ordinary WordPress or other tenant tables changed');
-$after = fingerprints(); $rerun = $importer->reconcile($export); verify($rerun['rows']['identical'] === 5 && $rerun['rows']['insert'] === 0, 'Real rerun is not idempotent');
+$after = fingerprints();
+// Exercise every ASCII control, SQL-looking text and supplementary Unicode in
+// the real mixed-charset table, then roll back this extra synthetic record.
+$transport = $export->data['records'][0]['fields'];
+$transport[0] = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+$transport[3] = implode('', array_map('chr', range(0, 127))) . "é e\u{0301} 日本語 😀 '); DROP TABLE imaginary; -- %s";
+$target->begin();
+try {
+    $target->insert('pastes', $transport);
+    verify($target->read('pastes', $transport[0], true) === $transport, 'Real SQL transport changed controls, quoting or UTF-8');
+} finally { $target->rollback(); }
+verify(fingerprints() === $after, 'Transport regression left persistent data');
+$rerun = $importer->reconcile($export); verify($rerun['rows']['identical'] === 5 && $rerun['rows']['insert'] === 0, 'Real rerun is not idempotent');
 $importer->apply($export, $rerun['plan_sha256'], true); verify(fingerprints() === $after, 'No-op rerun rewrote data');
 $changed = $export->data; $changed['records'][0]['fields'][3] .= 'synthetic conflict';
 $changed['records'][0]['sha256'] = ExportFile::rowHash('pastes', $changed['records'][0]['fields']);

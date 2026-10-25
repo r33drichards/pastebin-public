@@ -37,9 +37,21 @@ The editor includes browser-based code execution powered by Runno, allowing you 
 The Output panel's **Download** button works for every language (it saves
 whatever the run printed or rendered).
 
-All code execution happens locally in your browser using WebAssembly — nothing
-runs server-side. Programs themselves have no network access; the runtimes
-(and, for Python, imported packages) are downloaded from CDNs.
+Execution happens in the browser, not in the WordPress server process. Some
+runners use WebAssembly and others use JavaScript or DOM rendering. This is not
+an origin-isolation or no-network guarantee: Pyodide exposes JavaScript interop,
+and browser capabilities differ by runner. Runtimes and imported packages may
+also download resources. COOP/COEP and a Web Worker alone do not isolate code
+from the application's origin or a signed-in WordPress session.
+
+Do not run untrusted pastes while signed into WordPress administration on the
+same origin. A verified separate execution-origin boundary or equivalent
+restriction is a production-promotion gate; the current migration does not
+claim that boundary is implemented. Source review identified this risk; it has
+not been validated against a real administrator session.
+
+Go remains a language/editor choice from the baseline; this migration does not
+add an executable Go browser runner or claim execution coverage for it.
 
 ### Python packages
 
@@ -126,8 +138,10 @@ execution timeout. Runs without the debugger take the plain fast path with
 no tracing overhead.
 
 JavaScript/TypeScript debug runs execute on the browser's own engine inside
-a locked-down worker (network and storage APIs are removed before user code
-runs) rather than on QuickJS, which exposes no pause hooks; `console`,
+a worker with selected network and storage APIs removed before user code
+runs. That API reduction is defense in depth, not a verified security sandbox
+or separate-origin boundary. Debugging uses this worker rather than QuickJS,
+which exposes no pause hooks; `console`,
 `print` and minimal QuickJS `std`/`os` shims keep the stdin examples
 working, and plain runs stay on QuickJS.
 
