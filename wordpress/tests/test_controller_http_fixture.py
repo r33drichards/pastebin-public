@@ -61,6 +61,35 @@ class ControllerFixtureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('fresh GitHub runner', result.stdout)
 
+    def test_wrapper_preserves_wordpress_rest_namespace_with_canonical_mount(self):
+        path = CI / 'run-controller-fixture.sh'
+        prefix = path.read_text().split('bash "$ROOT/wordpress/ci/run-fixture.sh"', 1)[0]
+        env = dict(os.environ, CI='true', GITHUB_ACTIONS='true', PBIN_SOURCE_SHA='a' * 40,
+                   PBIN_TEST_ARTIFACT='/unused.zip', PBIN_TEST_ARTIFACT_SHA256='b' * 64,
+                   PBIN_TEST_BASE_PATH='/wrong', PBIN_TEST_EDITOR_AT_BASE='0')
+        result = subprocess.run(['bash', '-c', prefix + '\nprintf "%s %s" "$PBIN_TEST_BASE_PATH" "$PBIN_TEST_EDITOR_AT_BASE"', str(path)],
+                                env=env, capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, '/paste 1')
+        self.assertEqual(result.stderr, '')
+        self.assertIn('request("GET", "/paste/health")', (CI / 'controller-http-contract.py').read_text())
+
+    def test_large_post_setting_is_bounded_and_only_for_hosted_controller(self):
+        source = (CI / 'run-fixture.sh').read_text()
+        setting = source.split('# BEGIN bounded fixture POST setting', 1)[1].split('# END bounded fixture POST setting', 1)[0]
+        self.assertIn('-d "post_max_size=$POST_MAX_SIZE"', source)
+        cases = [('', '', '', 0, '16M'), ('1', 'true', 'true', 0, '70M'),
+                 ('1', '', '', 1, None), ('1', 'true', '', 1, None)]
+        for gate, ci, github, status, value in cases:
+            env = dict(os.environ, PBIN_CONTROLLER_GATE=gate, CI=ci, GITHUB_ACTIONS=github)
+            result = subprocess.run(['bash', '-c', setting + '\nprintf "%s" "$POST_MAX_SIZE"'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, status)
+            if value is not None:
+                self.assertEqual(result.stdout, value)
+            else:
+                self.assertIn('requires the hosted fixture', result.stdout)
+            self.assertEqual(result.stderr, '')
+
     def test_authenticated_fixture_never_tails_raw_error_logs(self):
         source = (CI / 'run-fixture.sh').read_text()
         function = source.split('# BEGIN bounded fixture diagnostics', 1)[1].split('\n', 1)[1].split('# END bounded fixture diagnostics', 1)[0]

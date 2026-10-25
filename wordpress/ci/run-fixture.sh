@@ -34,6 +34,15 @@ fixture_failure_logs() {
     for log in install php wp-debug; do echo "--- $log ---"; tail -80 "$WORK/$log.log" 2>/dev/null || true; done
 }
 # END bounded fixture diagnostics
+# BEGIN bounded fixture POST setting
+POST_MAX_SIZE=16M
+if [[ "${PBIN_CONTROLLER_GATE:-}" == 1 ]]; then
+    [[ "${CI:-}" == true && "${GITHUB_ACTIONS:-}" == true ]] || { echo 'Controller POST setting requires the hosted fixture'; exit 1; }
+    # Raw application/zip also enters PHP's default POST reader. Match the
+    # loopback proxy's bounded transport ceiling, not a production PHP setting.
+    POST_MAX_SIZE=70M
+fi
+# END bounded fixture POST setting
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
@@ -65,7 +74,7 @@ if [[ -n "${PBIN_TEST_ARTIFACT:-}" ]]; then
 fi
 "$PHP" "$ROOT/wordpress/ci/install.php" >"$WORK/install.log" 2>&1
 grep -q '^PASS: real WordPress' "$WORK/install.log" || { fixture_failure_logs; exit 1; }
-"$PHP" -d post_max_size=16M -d memory_limit=256M -S "127.0.0.1:$PORT" -t "$WORK/site" "$ROOT/wordpress/ci/router.php" >"$WORK/php.log" 2>&1 &
+"$PHP" -d "post_max_size=$POST_MAX_SIZE" -d memory_limit=256M -S "127.0.0.1:$PORT" -t "$WORK/site" "$ROOT/wordpress/ci/router.php" >"$WORK/php.log" 2>&1 &
 SERVER_PID=$!
 ready=0
 HEALTH_URL="$PBIN_ACCEPTANCE_URL${PBIN_TEST_BASE_PATH:-}/health"

@@ -11,4 +11,7 @@ export PBIN_CONTROLLER_ARTIFACT="$PBIN_TEST_ARTIFACT"
 export PBIN_CONTROLLER_ARTIFACT_SHA256="$PBIN_TEST_ARTIFACT_SHA256"
 # Do not prepare or modify the existing file-registry preview fixture.
 unset PBIN_TEST_ARTIFACT PBIN_TEST_ARTIFACT_SHA256 PBIN_TEST_PREVIEW_ROOT PBIN_TEST_BASE_PATH PBIN_TEST_EDITOR_AT_BASE PBIN_TEST_RESULTS_DIR
+# Match the production/canonical mount. An empty-root pbin fixture claims
+# /wp-json during init and exits before WordPress/controller REST routing.
+export PBIN_TEST_BASE_PATH=/paste PBIN_TEST_EDITOR_AT_BASE=1
 bash "$ROOT/wordpress/ci/run-fixture.sh" bash "$ROOT/wordpress/ci/controller-contracts.sh"

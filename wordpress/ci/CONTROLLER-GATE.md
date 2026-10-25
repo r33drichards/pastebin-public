@@ -105,3 +105,10 @@ The unit gate also runs `python3 -m unittest discover -s wordpress/tests -p
 trusted preview client's required TEST_STEPS set includes this exact new step.
 A new immutable control baseline must be reviewed before deployment; an old
 passing recipe cannot substitute for the newly required controller gate.
+
+The ordinary plugin uses the production-style `/paste` mount in this second
+fixture, leaving `/wp-json` and query-form REST routing to WordPress. Only this
+explicit hosted controller fixture sets PHP `post_max_size=70M`, matching its
+loopback proxy transport ceiling; ordinary fixtures remain at `16M`. The trusted
+controller still independently caps raw archives at 64 MiB. This is not a
+production/Wasmer upload configuration or a claim about proxy prebuffering.

@@ -124,9 +124,17 @@ def run():
     invalid_zip = b"not a zip; authorization must reject before installation"
     bad_headers = {"Content-Type": "application/zip", "X-Pbin-Artifact-Sha256": hashlib.sha256(invalid_zip).hexdigest(), "X-Pbin-Expected-Token": "none"}
     route = endpoint(910201, "/releases/" + artifact["revision"])
-    for credentials_headers in ({}, {"Authorization": "Basic " + base64.b64encode(b"invalid:invalid").decode()}, {"Authorization": other_auth}, {"Cookie": cookie}, {"Cookie": cookie, "X-WP-Nonce": "invalid"}):
+    denied_cases = (
+        ("anonymous", {}),
+        ("invalid-app-password", {"Authorization": "Basic " + base64.b64encode(b"invalid:invalid").decode()}),
+        ("unapproved-app-principal", {"Authorization": other_auth}),
+        ("cookie-missing-nonce", {"Cookie": cookie}),
+        ("cookie-bad-nonce", {"Cookie": cookie, "X-WP-Nonce": "invalid"}),
+    )
+    for case, credentials_headers in denied_cases:
         status, _, _ = request("POST", route, invalid_zip, bad_headers | credentials_headers)
-        require(status == 403 and inventory() == baseline, "unauthorized request must reject before any spool/publication")
+        require(status == 403, f"{case}: HTTP {status}, expected 403 before spool/publication")
+        require(inventory() == baseline, f"{case}: unauthorized request changed private storage")
     cookie_headers = {"Cookie": cookie, "X-WP-Nonce": credentials["nonce"]}
     require(state(910201, cookie_headers) is None and state(910201) is None, "real admin nonce and scoped app-password paths")
     cookie_status, _, cookie_body = request("POST", endpoint(910204, "/retire"), b'{"expected_token":null}', {"Content-Type": "application/json"} | cookie_headers)
@@ -202,7 +210,7 @@ def run():
     install(910203, expected=409)
     health(910202, artifact["revision"])
     require(state(910202) == b, "unrelated tenant state unchanged through all mutations")
-    require(request("GET", "/health")[0] == 200, "ordinary WordPress plugin healthy")
+    require(request("GET", "/paste/health")[0] == 200, "ordinary WordPress plugin healthy")
     fixture_control("check-default")
     print("PASS: native ZIP install, real MySQL-selected nonce health, two-tenant data/assets, upgrade/rollback/ABA/retirement", flush=True)
 
