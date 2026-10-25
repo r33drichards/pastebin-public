@@ -5,7 +5,10 @@ lifecycle. They do **not** deploy to Wasmer, provision a WordPress app, distribu
 credentials, or install a remotely callable upload endpoint. A safe Wasmer
 execution mechanism, persistent filesystem, Python availability, POSIX `flock`,
 atomic same-filesystem rename and directory `fsync` still need to be verified
-before any hosted deployment is enabled.
+before any hosted deployment is enabled. Managed Wasmer's shared RWX volumes
+also require cross-instance authoritative state: the hosted controller is expected
+to use MySQL transactions for mutation serialization and compare-and-swap. These
+local `flock` tests do not establish production locking or a deployable transport.
 
 The intended boundary is **one staging WordPress app running trusted, reviewed
 same-repository PHP**, not arbitrary or fork-authored code. PR namespaces isolate
@@ -100,22 +103,33 @@ Initial install and atomic activation:
 ```sh
 python3 wordpress/tools/preview_registry.py --root /srv/pbin-previews install \
   --pr 17 --artifact /tmp/pbin-preview.zip --sha256 "$DIGEST" \
-  --revision "$REVISION" --expected-active none
+  --revision "$REVISION" --expected-token none
 ```
 
-The optional `--revision` additionally pins the manifest revision. `--expected-active`
-is always required. `none` means the tenant does not yet exist, not that it is
-retired. Later installs must name the currently active full SHA, including for a
-retired tenant. A stale request fails without promotion; do not replace the
-expected value with whatever is current just to force a stale job through.
+The optional `--revision` additionally pins the manifest revision.
+`--expected-token` is always required for install, rollback and retire. `none`
+(Python API `None`) means the tenant is genuinely absent, not disabled, retired or
+missing an active revision. Every existing tenant has an opaque `state_token`:
+64 lowercase hex characters generated from 32 random bytes. It is a concurrency
+version, not a credential, authorization grant, artifact digest, or commit SHA.
 
-Registry schema consumed by the trusted selector:
+Capture the expected token when authorizing the operation and hold it fixed.
+Every actual registry state change rotates it, including retirement, re-enabling,
+and A-to-B-to-A rollback. An exact no-op preserves it only after validating the
+supplied token and, where applicable, the retained release integrity. Mutation
+results include `state_token` and `changed`. A stale request fails without
+promotion. Never silently refresh a token and retry an old deploy intent; recheck
+current PR eligibility/head and authorize a new intent instead. A matching token
+alone is never permission to run a closed or untrusted PR.
+
+Registry v2 schema consumed by the trusted selector (package manifests stay v1):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "tenants": {
     "pr-17": {
+      "state_token": "64-character-lowercase-random-hex-token",
       "enabled": true,
       "active": "0123456789abcdef0123456789abcdef01234567",
       "releases": {
@@ -133,7 +147,7 @@ Registry schema consumed by the trusted selector:
 file against independently recorded integrity metadata without keeping a second
 copy of the ZIP. Do not hand-edit the registry or remove this field.
 
-Install validates all bytes, obtains the exclusive registry lock, checks CAS and
+Install validates all bytes, obtains the exclusive registry lock, checks the complete state token and
 budgets, extracts to a new scratch directory, seals release files/directories as
 read-only, atomically renames into its immutable revision path, and atomically
 replaces the registry. Existing release contents are never overwritten. An exact
@@ -147,9 +161,9 @@ Rollback and retirement change only the tenant's registry pointer/state:
 
 ```sh
 python3 wordpress/tools/preview_registry.py --root /srv/pbin-previews rollback \
-  --pr 17 --revision "$OLD_REVISION" --expected-active "$CURRENT_REVISION"
+  --pr 17 --revision "$OLD_REVISION" --expected-token "$TOKEN_AFTER_INSTALL"
 python3 wordpress/tools/preview_registry.py --root /srv/pbin-previews retire \
-  --pr 17 --expected-active "$CURRENT_REVISION"
+  --pr 17 --expected-token "$TOKEN_AFTER_ROLLBACK"
 python3 wordpress/tools/preview_registry.py --root /srv/pbin-previews status
 ```
 
@@ -161,6 +175,45 @@ an operator can disable an over-budget preview. Neither operation deletes data.
 Database schema compatibility must be reviewed before rollback: this is a code
 pointer rollback, not a database snapshot restore or schema migration system.
 
+### Close-before-install tombstones and competing intents
+
+Retiring an absent PR with `--expected-token none` creates a durable disabled
+record with a new token, `active: null`, and `releases: {}`. It creates no release
+or tenant data directories. An enabled record must always have a non-null valid
+active SHA present in releases; null active with retained releases is invalid.
+The selector rejects disabled tombstones before inspecting active state. Retained
+asset URLs are also unavailable while a tenant is disabled.
+
+A previously queued first install carrying `none` cannot bypass the tombstone.
+An explicit newly authorized reopen can install using the tombstone's token,
+but only after the trusted controller rechecks that the PR is eligible and open.
+Do not delete tombstones: removal would erase the fence against stale absence.
+
+If first install and retirement both race with expected `none`, exactly one CAS
+wins. When retirement wins, the stale install fails. When install wins first,
+the stale retirement also fails; the controller must recheck that the PR remains
+closed and issue a fresh retirement against the current token. The local registry
+never blindly retries conflicts and does not itself query GitHub or reconcile PR
+events. CAS protects an authorized intent; it does not replace event reconciliation.
+
+### Explicit legacy migration
+
+The selector and `status` can read registry v1 during transition. New mutations
+refuse v1 rather than silently inventing tokens or accepting active-SHA CAS. After
+updating all trusted writers and readers, migrate explicitly:
+
+```sh
+python3 wordpress/tools/preview_registry.py --root /srv/pbin-previews migrate-v1
+```
+
+Migration acquires the same exclusive lock, preserves every tenant's enabled flag,
+active SHA, retained release metadata and data, assigns each tenant a random
+state token, and atomically replaces the registry as v2. Already-v2 migration is
+a no-op and does not rotate tokens. A failed replacement leaves v1 unchanged;
+inspect status after any uncertain result. Old `--expected-active` flags and
+40-character SHA-only API writes are not supported. Never downgrade the registry,
+remove tombstones, or restart from an empty registry to make an old job pass.
+
 ## Admission budgets, not automatic deletion
 
 Defaults are 2 active PRs, 3 retained revisions per PR, and 256 MiB total retained
@@ -168,8 +221,12 @@ filesystem bytes. All tenants, including retired tenants and orphan revisions,
 count. Tenant data and abandoned temporary files count toward storage. The small
 registry and lock files do not. Install and rollback fail closed if a limit would
 be exceeded. There is no garbage collector, purge operation, automatic eviction,
-or reset of saved data. A fourth revision fails rather than discarding an older
-revision. An administrator must deliberately revisit capacity/retention policy.
+or reset of saved data. A fourth distinct revision fails rather than discarding
+an older revision. Continuing requires an explicitly authorized code-only
+retention cleanup (not implemented) or an approved capacity adjustment. Any future
+code-only cleanup must preserve tenant runtime data and tombstones, protect active
+releases, and rotate the affected state token. There is no runtime-data purge.
+An administrator must deliberately revisit capacity/retention policy.
 
 Override limits only on the trusted installer invocation, before the subcommand:
 
@@ -194,7 +251,9 @@ python3 -m unittest discover -s wordpress/tests -p 'test_preview_packages.py' -v
 Coverage includes exact full-asset reproducibility, CLI extraction of the verified
 artifact, malicious ZIP rejection, source-mutation isolation, independent
 registry roots, A update/rollback preserving B and both tenants' saved data,
-retirement without deletion, immutable releases, stale/concurrent CAS requests,
-budget enforcement including orphans, rollback integrity checks, unsafe filesystem
-paths, and failure/retry around atomic registry promotion. These local tests do
+retirement without deletion, immutable releases, stale/concurrent token CAS,
+close-before-install tombstones, both first-install race orderings, close/ABA
+regressions, no-op semantics, explicit atomic legacy migration, budget enforcement
+including orphans, rollback integrity checks, unsafe filesystem paths, and
+failure/retry around atomic registry promotion. These local tests do
 not establish a hosted deployment or a working WordPress/MySQL/browser instance.

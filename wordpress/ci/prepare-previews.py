@@ -27,9 +27,10 @@ def command(script, *args):
     result = subprocess.run([sys.executable, str(tools / script), *map(str, args)], check=True, text=True, capture_output=True)
     return json.loads(result.stdout)
 
+states = {}
 for pr in ('910101', '910102'):
-    command('preview_registry.py', '--root', previews, 'install', '--pr', pr,
-            '--artifact', artifact, '--sha256', digest, '--revision', revision, '--expected-active', 'none')
+    states[pr] = command('preview_registry.py', '--root', previews, 'install', '--pr', pr,
+            '--artifact', artifact, '--sha256', digest, '--revision', revision, '--expected-token', 'none')
 
 # Synthetic upgrade is only a test fixture: never uploaded as a release artifact.
 # It proves branch PHP selection, not merely registry/header changes. Base A/B
@@ -50,10 +51,11 @@ upgrade_info = command('package.py', '--source', upgrade_source / 'pbin', '--rev
 
 mu = site / 'wp-content/mu-plugins'
 (mu / 'pbin-preview').mkdir(parents=True)
-for filename in ('loader.php', 'selector.php'):
+for filename in ('loader.php', 'selector.php', 'health.php'):
     shutil.copyfile(ROOT / 'wordpress/preview' / filename, mu / 'pbin-preview' / filename)
 (mu / 'pbin-preview.php').write_text("<?php\nrequire __DIR__ . '/pbin-preview/loader.php';\n")
 data = {'root': str(previews), 'revision': revision, 'a': 910101, 'b': 910102,
+        'a_token': states['910101']['state_token'], 'b_token': states['910102']['state_token'],
         'upgrade_revision': upgrade_revision, 'upgrade_artifact': str(upgrade),
         'upgrade_sha256': upgrade_info['artifact_sha256']}
 (work / 'previews.json').write_text(json.dumps(data, sort_keys=True) + '\n')

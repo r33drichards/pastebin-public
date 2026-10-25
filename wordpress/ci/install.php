@@ -22,7 +22,10 @@ if ($editorAtBase !== false && $editorAtBase !== '') {
     $config['PBIN_WP_EDITOR_AT_BASE'] = $editorAtBase === '1';
 }
 // Optional trusted test setup may install the preview control plane before boot.
-if (getenv('PBIN_TEST_PREVIEW_ROOT')) { $config['PBIN_PREVIEW_ROOT'] = getenv('PBIN_TEST_PREVIEW_ROOT'); }
+if (getenv('PBIN_TEST_PREVIEW_ROOT')) {
+    $config['PBIN_PREVIEW_ROOT'] = getenv('PBIN_TEST_PREVIEW_ROOT');
+    $config['PBIN_PREVIEW_REGISTRY_BACKEND'] = 'file'; // Explicit disposable compatibility fixture.
+}
 $contents = "<?php\n// Disposable fixture, not a production configuration.\n";
 foreach ($config as $key => $value) { $contents .= 'define(' . var_export($key, true) . ', ' . var_export($value, true) . ");\n"; }
 $contents .= "\$table_prefix = 'wp_';\nif (!defined('ABSPATH')) { define('ABSPATH', __DIR__ . '/'); }\nrequire ABSPATH . 'wp-settings.php';\n";

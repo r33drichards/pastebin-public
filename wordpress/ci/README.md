@@ -114,8 +114,13 @@ execute arbitrary branch PHP on shared staging.
 
 Before enabling a separate trusted installer, verify source repository and
 trusted same-repository ref, exact current PR head, trusted workflow/run success,
-artifact ID/source SHA/digest, explicit expected-active compare-and-swap,
+artifact ID/source SHA/digest, explicit expected-state-token compare-and-swap,
 approved environment/access and a working Wasmer installation/execution route.
+The token must be captured for the authorized intent and rotated on every real
+state change; an active SHA alone cannot fence close or rollback/ABA races. A
+controller must reconcile close/install conflicts after rechecking current PR
+state. Wasmer shared-volume locking is unproven; hosted authoritative mutation
+state is expected to use MySQL transactions, not these local `flock` checks.
 Never check out or execute PR scripts in a privileged workflow. Untrusted forks
 may produce test reports but must never reach shared staging. Stale-head,
 wrong-digest and failed-gate attempts must be denied. This host-specific path,

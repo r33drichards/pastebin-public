@@ -7,6 +7,7 @@ cd "$ROOT"
 node --test acceptance/http-contract.test.mjs
 node --test wordpress/ci/http-contract.test.mjs
 bash wordpress/ci/check-database-tenancy.sh
+bash wordpress/ci/check-mysql-preview-registry.sh
 node --test wordpress/ci/preview-http-contract.test.mjs
 npm --prefix e2e test
 echo 'PASS: real WordPress HTTP and retained Chromium editor/runner gates'

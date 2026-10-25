@@ -147,7 +147,7 @@ if (str_starts_with($mode, '--wordpress-context=')) {
     $pbinFixtureNormalPlugin = getenv('PBIN_TEST_NORMAL_PLUGIN') ?: 'pbin/pbin.php';
     add_filter('option_active_plugins', static fn($plugins) => array_values(array_diff((array) $plugins, [$pbinFixtureNormalPlugin])));
     add_filter('site_option_active_sitewide_plugins', static function ($plugins) use ($pbinFixtureNormalPlugin) { unset($plugins[$pbinFixtureNormalPlugin]); return $plugins; });
-    if (!defined('DISABLE_WP_CRON')) { define('DISABLE_WP_CRON', true); }
+    // The guarded disposable fixture config disables cron before core loads.
     require $pbinFixtureWpLoad;
     check(defined('DB_NAME') && DB_NAME === $pbinFixtureExpectedDB, 'Refusing to test a database outside the named fixture');
     check(defined('DB_HOST') && preg_match('~^(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+|:/[^\r\n]+)?$~D', DB_HOST) === 1, 'Real database fixture must use localhost');
@@ -268,7 +268,18 @@ if (str_starts_with($mode, '--context=')) {
 if (str_starts_with($mode, '--loader=')) {
     $case = substr($mode, strlen('--loader='));
     $root = $argv[2];
+    if (str_starts_with($case, 'v2-')) {
+        $originalRegistry = file_get_contents($root . '/registry.json');
+        $version2 = json_decode($originalRegistry, true);
+        $version2['version'] = 2;
+        foreach ($version2['tenants'] as &$record) { $record['state_token'] = str_repeat('1', 64); }
+        unset($record);
+        file_put_contents($root . '/registry.json', json_encode($version2));
+        register_shutdown_function(static fn() => file_put_contents($root . '/registry.json', $originalRegistry));
+        $case = substr($case, 3);
+    }
     define('ABSPATH', $root . '/wp/');
+    define('PBIN_PREVIEW_REGISTRY_BACKEND', 'file');
     if ($case !== 'unconfigured') { define('PBIN_PREVIEW_ROOT', $root); }
     $_SERVER['REQUEST_URI'] = '/previews/pr-101/paste';
     if ($case === 'unrelated') { $_SERVER['REQUEST_URI'] = '/somewhere-else'; }
@@ -279,7 +290,7 @@ if (str_starts_with($mode, '--loader=')) {
         if ($case === $name) { define($constant, true); }
     }
     if ($case === 'rest-query') { $_GET['rest_route'] = '/wp/v2/posts'; }
-    $rejections = ['unconfigured', 'unknown', 'malformed', 'raw-control', 'disabled', 'missing-enabled', 'invalid-registry', 'huge-registry', 'missing-registry', 'symlink-registry', 'missing-entry', 'duplicate'];
+    $rejections = ['unconfigured', 'unknown', 'malformed', 'raw-control', 'disabled', 'tombstone', 'enabled-null', 'missing-token', 'missing-enabled', 'invalid-registry', 'huge-registry', 'missing-registry', 'symlink-registry', 'missing-entry', 'duplicate'];
     if (in_array($case, $rejections, true)) {
         $originalRegistry = file_get_contents($root . '/registry.json');
         $runtime = $root . '/releases/pr-101/' . PREVIEW_TEST_A . '/pbin/runtime.php';
@@ -290,6 +301,15 @@ if (str_starts_with($mode, '--loader=')) {
             $registry = json_decode($originalRegistry, true);
             if ($case === 'disabled') { $registry['tenants']['pr-101']['enabled'] = false; }
             else { unset($registry['tenants']['pr-101']['enabled']); }
+            file_put_contents($root . '/registry.json', json_encode($registry));
+        }
+        if (in_array($case, ['tombstone', 'enabled-null', 'missing-token'], true)) {
+            $registry = json_decode($originalRegistry, true);
+            $registry['version'] = 2;
+            if ($case !== 'missing-token') {
+                $registry['tenants']['pr-101'] = ['enabled' => $case === 'enabled-null',
+                    'active' => null, 'releases' => [], 'state_token' => str_repeat('1', 64)];
+            }
             file_put_contents($root . '/registry.json', json_encode($registry));
         }
         if ($case === 'invalid-registry') { file_put_contents($root . '/registry.json', '{invalid'); }
@@ -325,6 +345,7 @@ if (str_starts_with($mode, '--loader=')) {
         $loader = $root . '/control/loader.php';
         file_put_contents($loader, $source);
         copy(dirname(__DIR__) . '/preview/selector.php', $root . '/control/selector.php');
+        copy(dirname(__DIR__) . '/preview/health.php', $root . '/control/health.php');
     }
     require $loader;
     $loaded = class_exists('Pbin\\Plugin\\Instance', false);
@@ -461,7 +482,39 @@ try {
     $test('disabled tenant', function () use ($root, $registry) { $registry['tenants']['pr-101']['enabled'] = false; expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Disabled tenant'); });
     $test('tenant needs explicit enabled flag', function () use ($root, $registry) { unset($registry['tenants']['pr-101']['enabled']); expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Missing enabled flag'); });
     $test('disabled invalid boolean', function () use ($root, $registry) { $registry['tenants']['pr-101']['enabled'] = 'true'; expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Invalid enabled value'); });
-    $test('unsupported registry', function () use ($root, $registry) { $registry['version'] = 2; expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Unsupported registry'); });
+    $test('unsupported registry', function () use ($root, $registry) { $registry['version'] = 3; expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Unsupported registry'); });
+    $test('v2 enabled tenants and retained assets', function () use ($root, $registry, $a, $old) {
+        $registry['version'] = 2;
+        foreach ($registry['tenants'] as &$record) { $record['state_token'] = str_repeat('1', 64); }
+        unset($record);
+        check(Selector::resolve('/previews/pr-101/paste', $registry, $root)['plugin_dir'] === $a, 'V2 active selection');
+        check(Selector::resolve('/previews/pr-101/_releases/' . PREVIEW_TEST_OLD . '/static/js/fixture.js', $registry, $root)['plugin_dir'] === $old, 'V2 retained selection');
+    });
+    $test('v2 tombstone rejected before active validation', function () use ($root, $registry) {
+        $registry['version'] = 2;
+        $registry['tenants']['pr-101'] = ['enabled' => false, 'active' => null,
+            'releases' => [], 'state_token' => str_repeat('1', 64)];
+        try { Selector::resolve('/previews/pr-101/paste', $registry, $root); }
+        catch (RuntimeException $error) { check($error->getMessage() === 'Unknown preview', 'Tombstone did not fail at disabled check'); return; }
+        throw new RuntimeException('Tombstone was selected');
+    });
+    $test('enabled null active denied for normal and pinned routes in v1 and v2', function () use ($root, $registry) {
+        foreach ([1, 2] as $version) {
+            $registry['version'] = $version;
+            $registry['tenants']['pr-101']['active'] = null;
+            if ($version === 2) { $registry['tenants']['pr-101']['state_token'] = str_repeat('1', 64); }
+            foreach (['/paste', '/_releases/' . PREVIEW_TEST_OLD . '/static/js/fixture.js'] as $route) {
+                expectedException(fn() => Selector::resolve('/previews/pr-101' . $route, $registry, $root), 'Null active release');
+            }
+        }
+    });
+    $test('v2 state token required and validated', function () use ($root, $registry) {
+        $registry['version'] = 2;
+        foreach ([null, PREVIEW_TEST_A, str_repeat('A', 64), '', true] as $token) {
+            $registry['tenants']['pr-101']['state_token'] = $token;
+            expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Invalid v2 state token');
+        }
+    });
     $test('malformed active SHA', function () use ($root, $registry) { $registry['tenants']['pr-101']['active'] = '../escape'; expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Invalid SHA'); });
     $test('unregistered release', function () use ($root, $registry) { unset($registry['tenants']['pr-101']['releases'][PREVIEW_TEST_A]); expectedException(fn() => Selector::resolve('/previews/pr-101/paste', $registry, $root), 'Unregistered active release'); });
     $test('pinned old assets only', function () use ($root, $registry, $old) {
@@ -497,10 +550,10 @@ try {
         check(array_intersect($contexts['pr_101']['tables'], $contexts['pr_202']['tables']) === [], 'A/B used same table');
         check(array_intersect($contexts['default']['tables'], $contexts['pr_101']['tables']) === [], 'Production/preview used same table');
     });
-    foreach (['native-cli', 'unrelated', 'admin-path', 'admin', 'cron', 'ajax', 'rest-path', 'rest', 'rest-query', 'wp-cli', 'selected', 'retained-assets'] as $case) {
+    foreach (['native-cli', 'unrelated', 'admin-path', 'admin', 'cron', 'ajax', 'rest-path', 'rest', 'rest-query', 'wp-cli', 'selected', 'retained-assets', 'v2-selected', 'v2-retained-assets'] as $case) {
         $test('loader ' . $case, fn() => child('--loader=' . $case, $root));
     }
-    foreach (['unconfigured', 'unknown', 'malformed', 'raw-control', 'disabled', 'missing-enabled', 'invalid-registry', 'huge-registry', 'missing-registry', 'symlink-registry', 'missing-entry', 'duplicate'] as $case) {
+    foreach (['unconfigured', 'unknown', 'malformed', 'raw-control', 'disabled', 'tombstone', 'enabled-null', 'missing-token', 'missing-enabled', 'invalid-registry', 'huge-registry', 'missing-registry', 'symlink-registry', 'missing-entry', 'duplicate'] as $case) {
         $test('rejected loader ' . $case, function () use ($case, $root) { check((child('--loader=' . $case, $root)['rejected'] ?? false) === true, 'Loader did not reject'); });
     }
     foreach (['valid', 'missing-root', 'symlink-root', 'symlink-file', 'traversal', 'encoded-traversal', 'php-extension', 'directory', 'missing-file'] as $case) {

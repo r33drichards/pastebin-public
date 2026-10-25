@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 const root = path.resolve(import.meta.dirname, '../..');
 const work = process.env.PBIN_WP_FIXTURE;
 const base = process.env.PBIN_ACCEPTANCE_URL;
@@ -16,6 +16,11 @@ const request = (route, options = {}) => fetch(new URL(route, base), { redirect:
 const form = data => new URLSearchParams(data);
 function registry(...args) {
   return JSON.parse(execFileSync('python3', [path.join(root, 'wordpress/tools/preview_registry.py'), '--root', fixture.root, ...args], {encoding: 'utf8'}));
+}
+function rejectStale(...args) {
+  const result = spawnSync('python3', [path.join(root, 'wordpress/tools/preview_registry.py'), '--root', fixture.root, ...args], {encoding: 'utf8'});
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Tenant state changed/);
 }
 async function health(n, revision) {
   const r = await request(mount(n) + '/health');
@@ -64,8 +69,8 @@ test('two real HTTP previews interleave, upgrade one, and roll back without cros
   assert.ok(originalCSS.length > 1000);
   assert.equal((await request(mount(fixture.a) + '/static/css/app.css')).status, 404);
 
-  registry('install', '--pr', String(fixture.a), '--artifact', fixture.upgrade_artifact,
-    '--sha256', fixture.upgrade_sha256, '--revision', fixture.upgrade_revision, '--expected-active', fixture.revision);
+  const installed = registry('install', '--pr', String(fixture.a), '--artifact', fixture.upgrade_artifact,
+    '--sha256', fixture.upgrade_sha256, '--revision', fixture.upgrade_revision, '--expected-token', fixture.a_token);
   const upgraded = await health(fixture.a, fixture.upgrade_revision);
   assert.equal(upgraded.headers.get('x-pbin-ci-fixture'), 'upgraded');
   const unchanged = await health(fixture.b, fixture.revision);
@@ -79,12 +84,42 @@ test('two real HTTP previews interleave, upgrade one, and roll back without cros
   const updatedHtml = await (await request(mount(fixture.a) + '/paste?id=' + a)).text();
   assert.ok(updatedHtml.includes('/_releases/' + fixture.upgrade_revision + '/static/'));
 
-  registry('rollback', '--pr', String(fixture.a), '--revision', fixture.revision, '--expected-active', fixture.upgrade_revision);
+  const reverted = registry('rollback', '--pr', String(fixture.a), '--revision', fixture.revision, '--expected-token', installed.state_token);
+  assert.notEqual(reverted.state_token, fixture.a_token, 'A -> B -> A must not restore an old state token');
   const rolledBack = await health(fixture.a, fixture.revision);
   assert.equal(rolledBack.headers.get('x-pbin-ci-fixture'), null);
   await health(fixture.b, fixture.revision);
   assert.equal(await (await raw(fixture.a, a)).text(), 'A updated');
   assert.equal(await (await raw(fixture.b, b)).text(), 'B unchanged λ 😀');
+  // A stale intent cannot win after ABA or after a close, even if active SHA
+  // happens to match its original value. Preserve data across explicit reopening.
+  const staleInstall = token => rejectStale('install', '--pr', String(fixture.a),
+    '--artifact', fixture.upgrade_artifact, '--sha256', fixture.upgrade_sha256,
+    '--revision', fixture.upgrade_revision, '--expected-token', token);
+  staleInstall(fixture.a_token);
+  const retired = registry('retire', '--pr', String(fixture.a), '--expected-token', reverted.state_token);
+  assert.equal(retired.enabled, false);
+  staleInstall(reverted.state_token);
+  rejectStale('rollback', '--pr', String(fixture.a), '--revision', fixture.revision,
+    '--expected-token', reverted.state_token);
+  assert.equal((await request(mount(fixture.a) + '/health')).status, 404);
+  assert.equal((await request(assetPath)).status, 404, 'disabled preview must not serve retained assets');
+  await health(fixture.b, fixture.revision);
+  // This is an explicit new test intent, not an automatic retry with a fresh token.
+  registry('rollback', '--pr', String(fixture.a), '--revision', fixture.revision,
+    '--expected-token', retired.state_token);
+  await health(fixture.a, fixture.revision);
+  assert.equal(await (await raw(fixture.a, a)).text(), 'A updated');
+  assert.equal(await (await raw(fixture.b, b)).text(), 'B unchanged λ 😀');
+  const neverInstalled = 910103;
+  const tombstone = registry('retire', '--pr', String(neverInstalled), '--expected-token', 'none');
+  assert.equal(tombstone.active, null);
+  rejectStale('install', '--pr', String(neverInstalled), '--artifact', fixture.upgrade_artifact,
+    '--sha256', fixture.upgrade_sha256, '--revision', fixture.upgrade_revision, '--expected-token', 'none');
+  assert.equal((await request(mount(neverInstalled) + '/health')).status, 404);
+  const state = registry('status').registry;
+  assert.equal(state.version, 2);
+  assert.equal(state.tenants[`pr-${fixture.b}`].state_token, fixture.b_token, 'B state must remain untouched');
   assert.equal((await request('/previews/pr-999999/health')).status, 404);
   const normal = await request('/health');
   assert.equal(normal.status, 200); assert.equal(normal.headers.get('x-pbin-instance'), null);

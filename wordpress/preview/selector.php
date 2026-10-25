@@ -10,12 +10,20 @@ final class Selector {
         if (str_contains($path, '%') || str_contains($path, '//') || str_contains($path, '\\')
             || preg_match('~(?:^|/)\.{1,2}(?:/|$)|[\x00-\x20\x7f]~', $path)) { throw new RuntimeException('Invalid preview path'); }
         if (!preg_match('~^/previews/(pr-([1-9][0-9]{0,9}))(?=/|$)~D', $path, $match)) { throw new RuntimeException('Unknown preview'); }
-        if (($registry['version'] ?? null) !== 1) { throw new RuntimeException('Unsupported registry'); }
+        $version = $registry['version'] ?? null;
+        if (!in_array($version, [1, 2], true)) { throw new RuntimeException('Unsupported registry'); }
         $tenant = $match[1];
         $record = $registry['tenants'][$tenant] ?? null;
         if (!is_array($record) || ($record['enabled'] ?? false) !== true) { throw new RuntimeException('Unknown preview'); }
+        // Disabled v2 tombstones are rejected above before nullable active or
+        // release metadata is examined. Enabled records must be complete even
+        // when the request pins an older asset revision.
+        if ($version === 2 && (!is_string($record['state_token'] ?? null)
+            || !preg_match('/^[a-f0-9]{64}$/D', $record['state_token']))) { throw new RuntimeException('Invalid state token'); }
+        $revision = $record['active'] ?? null;
+        if (!is_string($revision) || !preg_match('/^[a-f0-9]{40}$/D', $revision)
+            || !is_array($record['releases'] ?? null) || !isset($record['releases'][$revision])) { throw new RuntimeException('Invalid active release'); }
         $base = '/previews/' . $tenant;
-        $revision = $record['active'] ?? '';
         $requestBase = $base;
         $suffix = substr($path, strlen($base));
         if (str_starts_with($suffix, '/static/')) { throw new RuntimeException('Preview assets require an immutable release URL'); }

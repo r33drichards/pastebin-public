@@ -44,7 +44,11 @@ Keep the control plane and registry writable only to the authorized deploy path.
 `wordpress/tools/package.py` and `preview_registry.py` implement and test the
 artifact/registry protocol. They are Python operator tools, **not a claim that
 managed Wasmer WordPress can run Python**. The Wasmer write transport must be
-verified before deployment automation can be enabled. Candidate transports are a
+verified before deployment automation can be enabled. Local filesystem `flock`
+and atomic-rename tests do not establish cross-instance locking on Wasmer's shared
+RWX volumes. Hosted control is expected to use MySQL-authoritative transactional
+state and token CAS; do not treat this local operator protocol as production-proven.
+Candidate transports are a
 deployment job with verified persistent-volume access, or a separately reviewed
 authenticated WordPress deployment endpoint. No credentials are created here.
 
@@ -58,19 +62,32 @@ authenticated WordPress deployment endpoint. No credentials are created here.
 3. For previews, accept only reviewed same-repository PR heads. Do not use
    `pull_request_target` to execute PR code with secrets. Recheck the PR is open and
    its current head is the tested SHA before promotion. Serialize each tenant;
-   compare-and-swap the old active SHA so stale jobs cannot win.
+   compare-and-swap an opaque v2 state token, not just the active SHA. Every real
+   change rotates the token, so retirement and A-to-B-to-A rollback fence stale
+   installs. Do not refresh a stale job's token without revalidating its intent.
 4. Verify both PR A and PR B can create/edit/read/snapshot independently with the
    same IDs in separate tables; check options, rate limits and browser storage.
    Upgrade and roll back A and prove B's code/data are unchanged.
-5. On PR close, disable its registry entry. Retain code/data for rollback. Any
-   permanent database/file purge requires a separately approved retention policy.
+5. On PR close, disable its registry entry, creating a durable token-bearing
+   tombstone even before the first install. Keep tombstones and code/data. If an
+   install beats a close request's CAS, recheck that the PR is still closed before
+   issuing a fresh retirement; event reconciliation belongs to the controller.
+   Any permanent database/file purge requires a separately approved retention policy.
 6. Refuse operations over the configured package/tenant/disk limits. Inspect the
    actual account budget before staging creation. Database storage and compute
    usage also need observation; the disk cap is not a MySQL/compute quota.
 
 Default proof limits are two enabled tenants, three retained releases per tenant,
 and 256 MiB on disk. These are conservative configurable proof limits, not a
-statement of available Wasmer account quota. Never upgrade a plan automatically.
+statement of available Wasmer account quota. A fourth distinct retained revision
+fails until an explicitly authorized code-only retention cleanup or approved
+capacity change. No cleanup or runtime-data purge is implemented. Never upgrade a
+plan automatically.
+
+The selector reads registry v1/v2 during transition, but operator mutations require
+v2. Use the explicit locked `migrate-v1` command to preserve legacy records and
+assign state tokens; no SHA-only mutation fallback exists. See
+[the operator protocol](../tools/README.md) for migration and token semantics.
 
 ## Production promotion and rollback
 

@@ -12,10 +12,15 @@ node wordpress/tests/template-syntax.cjs "$WORK/templates.json"
 "$PHP" wordpress/tests/platform-compat.php
 node wordpress/tests/single-user-editor.cjs
 node wordpress/tests/jsx-runner.cjs
-node wordpress/tests/effect-starter.cjs
+node --experimental-vm-modules wordpress/tests/effect-starter.cjs
 "$PHP" wordpress/tests/preview-tenancy.php
 "$PHP" wordpress/tests/preview-bootstrap-state.php
+"$PHP" wordpress/tests/mysql-preview-registry.php
+"$PHP" wordpress/tests/preview-controller.php
+"$PHP" wordpress/tests/preview-controller-http.php
+python3 wordpress/tests/build-native-package-fixtures.py --output "$WORK/native-fixtures"
+"$PHP" wordpress/tests/native-package.test.php "$WORK/native-fixtures"
 node wordpress/tests/preview-storage.cjs
 test -f wordpress/tests/test_preview_packages.py
-python3 -m unittest discover -s wordpress/tests -p 'test_preview_packages.py'
+python3 -m unittest discover -s wordpress/tests -p 'test_preview_*.py'
 echo 'PASS: required syntax and unit gates (not an integration/browser result)'

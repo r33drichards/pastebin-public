@@ -1,0 +1,178 @@
+# Disabled trusted staging controller: bounded implementation milestone
+
+This code is not installed on Wasmer. No private persistent mount, credential,
+principal, capability grant, workflow activation or deployment is performed.
+Native ZipArchive availability alone is not deployment acceptance. The module is
+trusted control-plane code installed separately from branch ZIPs, never copied
+from a PR's package. Shared trusted PHP remains functional isolation, not a sandbox.
+
+## Explicit configuration and setup boundary
+
+The trusted MU entrypoint may require `controller.php` and `loader.php`. All
+adjacent dependencies (`mysql-registry.php`, `selector.php`, `health.php`, and
+`control/*.php`) must come from the reviewed control-plane revision. The default
+controller and setup action are disabled. No code creates a principal, password,
+role, capability or persistent credential.
+
+Before an administrator can enable this on the separately approved staging app:
+
+- `PBIN_PREVIEW_STAGING` must be boolean true and `WP_ENVIRONMENT_TYPE` must be
+  `staging`. `PBIN_PREVIEW_STAGING_ORIGIN` must be an explicit HTTPS origin exactly
+  matching WordPress's home URL. The current client targets only
+  `https://pbin-staging.wasmer.app`.
+- `PBIN_PREVIEW_REGISTRY_BACKEND` must be exactly `mysql` and `PBIN_PREVIEW_ROOT`
+  must name an already approved, canonical, private directory (mode 0700) on the
+  persistent RWX mount, disjoint from ABSPATH, WP_CONTENT_DIR and DOCUMENT_ROOT.
+  No `/data` location is assumed or created, and there is no wp-content fallback.
+- `PBIN_PREVIEW_CONTROLLER_ENABLED` must explicitly be boolean true before the
+  management adapter registers. HTTPS is also required for each request.
+- Cookie-authenticated administrators need `manage_options` and the real core
+  WordPress REST nonce check. Application-password calls require a successfully
+  authenticated app password, the explicitly approved
+  `PBIN_PREVIEW_AUTOMATION_USER_ID`, and `pbin_manage_previews`. Giving a user only
+  `manage_options` does not authorize app-password deployment. No grant is made
+  here; creating credentials or changing persistent access requires approval.
+- Initial setup is separate: temporarily enable `PBIN_PREVIEW_SETUP_ENABLED`,
+  then an HTTPS POST to WordPress's admin-post action
+  `pbin_preview_install_schema` must pass `manage_options` and the action's admin
+  nonce. It verifies/creates the three private subdirectories and explicitly calls
+  `installSchema()`. Disable setup afterward. This action has no public installer
+  or form. Runtime reads, normal boot and loader selection never migrate.
+
+For fixture/compatibility use only, explicitly choose registry backend `file`.
+MySQL mode never falls back to a filesystem registry when SQL fails. Switching
+between backends is a separately controlled migration, not automatic recovery.
+The existing disposable HTTP fixture explicitly chooses file mode; it does not
+claim to exercise the new MySQL/controller path.
+
+## REST and bounded input
+
+The routes and successful JSON envelopes match `AUTOMATION.md`: GET tenant,
+POST raw ZIP to the full-SHA release route, POST retire, and POST rollback.
+`record: null` means absence; empty tombstone releases serialize as `{}`. Token
+conflicts return 409. An uncertain database commit returns 503; clients must
+inspect state without blindly replaying a mutation or refreshing its token.
+
+Core `WP_REST_Server::serve_request()` normally buffers the entire raw body before
+route callbacks. Therefore the adapter runs at parse_request priority 0, before
+core's REST callback, for this exact namespace only. It handles both pretty
+`/wp-json/` and query-form `?rest_route=` routing, sets REST_REQUEST, refreshes a
+cached anonymous user as core does, and invokes the actual REST authentication
+filters. Cookie administration additionally invokes core's cookie nonce check
+explicitly, even if another authentication filter returned early. Authorization
+and method/route checks occur before opening/reading the input stream. Unknown
+routes/methods, method override and JSONP do not acquire management authority.
+No credential is parsed by this code and no CORS permission is added.
+
+ZIP input is read in bounded chunks into an exclusively created private spool.
+The plugin enforces an exact SHA-256, optional exact Content-Length, a 64 MiB
+archive cap and the remaining root byte budget while reading. JSON bodies are
+limited to 4096 bytes and reject duplicate/extra fields. Compressed HTTP bodies,
+multipart uploads, ambiguous digest/token headers and arbitrary paths are refused.
+This is a **plugin read/storage bound**, not proof of a PHPix, PHP/SAPI, proxy or
+network-level upload cap: those layers may prebuffer bytes before PHP runs and
+need separate real-host acceptance and configuration.
+
+## Filesystem publication and admission
+
+A shared atomic `mkdir(.controller-lock)` serializes filesystem mutations across
+instances. No flock, timeout lease, stale-lock expiration or automatic lock
+stealing is used. Crashes retain the lock and require explicit operator recovery.
+Uncertain database commit outcomes retain it too. A DB-only retirement remains
+available despite this lock so a failed upload cannot prevent fencing a closed PR.
+
+All files/directories under the root count toward hard bounds: 256 MiB and 65536
+entries, including data, pending uploads, partial packages, snapshots and orphans.
+Symlinks, multiply linked regular files and other special entries fail closed.
+Before extraction, admission reserves the exact verifier snapshot size plus its
+64 MiB expanded-byte and 16384-entry hard bounds. A fourth retained or orphan
+full-SHA directory for one tenant is refused. No retained data is deleted to fit.
+
+The native verifier exclusively mkdir-creates the final SHA destination. There
+is no overwriting rename or replacement of an existing release. An existing
+complete directory must pass full canonical archive and manifest verification;
+an incomplete directory is refused, never replaced. Successfully verified files
+are sealed read-only before publication. Files become routable only after the
+MySQL CAS succeeds with the exact approved complete release record. A late CAS
+conflict can leave an unroutable, counted orphan; it cannot alter the active token.
+The controller never executes package PHP, runs commands or accepts a client path.
+
+Reads select the authoritative MySQL snapshot and ordinary branch loading stays
+limited to the existing preview selector paths. Normal WordPress, admin, cron,
+REST and unrelated requests do not execute branch PHP. Health still executes the
+real selected plugin's health handler. On the exact active `/previews/pr-N/health`
+path, the trusted loader replaces the emitted revision and cache headers with
+`X-Pbin-Revision` and `Cache-Control: no-store`. If supplied, one exact
+`pbin-health-nonce=<64 lowercase hex>` query is echoed as
+`X-Pbin-Health-Nonce`. Malformed/duplicate nonce queries are rejected before branch
+execution and no nonce is reflected elsewhere. This is not a synthetic OK.
+
+## Intentional lifecycle limit and recovery design
+
+The proof is deliberately bounded: two enabled tenants, three immutable retained
+releases per tenant, 1024 registry records including tombstones, and the root
+limits above. A fourth SHA is blocked. Disabling a tenant does **not** reclaim
+its code, registry releases or data, so this is not complete unattended teardown
+or an unlimited ongoing PR lifecycle. Lock recovery is not implemented as an
+endpoint and there is no age-based purge.
+
+A future separately authorized, code-only retention operation should:
+
+1. Stop/serialize installation, establish that no instance still owns the lock,
+   and re-read authoritative state/token. Resolve uncertain commits before any
+   cleanup or lock removal. Never infer abandonment solely from lock age.
+2. Protect the active release and an explicitly selected, fully verified rollback
+   release. Establish a grace interval for immutable asset URLs used by open tabs.
+3. Under a new reviewed transaction/state transition, identify eligible inactive
+   code and orphan directories with exact expected hashes, bounded inventory and
+   no symlinks. Keep a reviewable deletion plan and recovery mechanism before
+   removal; obtain any required deletion approval. Existing registry APIs refuse
+   release removal, so this requires a separately reviewed schema/API extension,
+   not direct ad hoc SQL or deleting files still referenced by the current record.
+4. Preserve token fencing and every closed-tenant tombstone. Do not recycle an
+   absent token state. Never treat code retention permission as permission to
+   delete tenant tables, uploads, options or user data; data retention is separate.
+5. Verify default WordPress and other tenants are unchanged, then perform a fresh
+   health/rollback check. No such cleanup or permission is implemented here.
+
+## Verification and required acceptance
+
+Passed locally with native PHP 8.4.24: 16 offline controller/storage/service
+protocol groups; 15 separate-process REST-adapter/loader cases; and the existing
+85/85 tenancy checks after explicit file-fixture selection. These use package,
+WordPress and wpdb doubles. They are not native ZIP extraction, real cookie or
+application-password authentication, real request streaming, MySQL, Wasm32,
+PHPix buffering, RWX durability, deployment or cutover proof.
+
+Run these additional unit entrypoints in the aggregate gate:
+
+```sh
+php wordpress/tests/preview-controller.php
+php wordpress/tests/preview-controller-http.php
+```
+
+Before activation, the disposable real-WordPress/MySQL/native-ZIP HTTPS fixture
+must prove, with no production credentials:
+
+- The explicit setup action cannot run when disabled; missing/bad admin nonce,
+  anonymous users and insufficient capabilities cannot create schema/directories.
+  Cookie REST missing/bad nonce and app-password errors/wrong principal/capability
+  fail before body intake; valid dedicated-principal and admin-cookie paths work.
+- Pretty and query-form routes use the same permission path. Oversized known- and
+  unknown-length bodies, duplicate headers, redirects, wrong content types,
+  malformed JSON and invalid package bytes never publish or execute branch PHP.
+- Exact native packages install through the service into MySQL-backed loader
+  selection. Separate requests/instances race create/retire and same-token updates;
+  no destination replacement occurs. Drop DB connectivity and prove no JSON
+  fallback, including when a valid registry.json exists beside the private root.
+- Two-tenant CRUD/snapshot/options/storage isolation survives install, upgrade,
+  rollback and close. Normal WordPress content remains unchanged. Probe health
+  with fresh nonces through the real HTTPS/cache path, checking body, revision,
+  nonce and no-store before re-reading the same token/state.
+- Crash during upload/extraction/sealing and before/after commit. Check the
+  counted orphan/partial state, retained lock, bounded capacity, DB-only close,
+  non-replay of uncertain operations and explicit authorized recovery plan.
+- Test real shared-volume atomic mkdir, permissions, persistent lifetime and
+  space/entry caps on the target host, including PHPix prebuffering and Wasm32
+  extension/format behavior. A hosted Linux/MySQL green is necessary but is not
+  proof of Wasmer behavior or permission to configure the private mount.
