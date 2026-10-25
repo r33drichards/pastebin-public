@@ -16,6 +16,12 @@ $config = [
     'WP_HTTP_BLOCK_EXTERNAL' => true, 'DISABLE_WP_CRON' => true,
     'PBIN_WP_BASE_PATH' => getenv('PBIN_TEST_BASE_PATH') ?: '',
 ];
+if (getenv('PBIN_INSTALLER_GATE') === '1') {
+    if (getenv('CI') !== 'true' || getenv('GITHUB_ACTIONS') !== 'true') {
+        throw new RuntimeException('WordPress installer gate requires the hosted fixture');
+    }
+    $config['FS_METHOD'] = 'direct'; // Disposable site only, never a host setting.
+}
 $editorAtBase = getenv('PBIN_TEST_EDITOR_AT_BASE');
 if ($editorAtBase !== false && $editorAtBase !== '') {
     if (!in_array($editorAtBase, ['0', '1'], true)) { throw new InvalidArgumentException('PBIN_TEST_EDITOR_AT_BASE must be 0 or 1'); }
@@ -37,6 +43,9 @@ require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 require_once ABSPATH . 'wp-admin/includes/plugin.php';
 $result = wp_install('pbin CI', 'pbin-test-admin', 'nobody@example.invalid', false, '', bin2hex(random_bytes(24)));
 if (is_wp_error($result)) { throw new RuntimeException($result->get_error_message()); }
+if (getenv('PBIN_INSTALLER_GATE') === '1') {
+    require __DIR__ . '/install-package.php';
+}
 $result = activate_plugin('pbin/pbin.php');
 if (is_wp_error($result)) { throw new RuntimeException($result->get_error_message()); }
 if (!is_plugin_active('pbin/pbin.php')) { throw new RuntimeException('Plugin activation did not persist'); }

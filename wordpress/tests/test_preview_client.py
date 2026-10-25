@@ -122,6 +122,28 @@ class PolicyTest(unittest.TestCase):
             value = jobs(); change(value)
             with self.assertRaises(client.Rejected): self.policy.jobs(value, 23, 1, A)
 
+    def test_real_wordpress_installer_gate_cannot_be_omitted_or_skipped(self):
+        name = 'Install standard ZIP through WordPress Plugin_Upgrader'
+        for mode in ('missing', 'skipped', 'failure'):
+            value = jobs()
+            job = next(job for job in value if job['name'].startswith('Build,'))
+            if mode == 'missing':
+                job['steps'] = [step for step in job['steps'] if step['name'] != name]
+            else:
+                next(step for step in job['steps'] if step['name'] == name)['conclusion'] = mode
+            with self.assertRaises(client.Rejected):
+                self.policy.jobs(value, 23, 1, A)
+        baseline = tree()
+        for mutation in ('change', 'remove'):
+            candidate = copy.deepcopy(baseline)
+            entry = next(entry for entry in candidate['tree'] if entry['path'] == 'wordpress/tools/wordpress_installer.py')
+            if mutation == 'change':
+                entry['sha'] = A
+            else:
+                candidate['tree'].remove(entry)
+            with self.assertRaises(client.Rejected):
+                self.policy.recipes(baseline, candidate)
+
     def test_changed_or_truncated_recipe_rejected(self):
         for change in [lambda t: t.update(truncated=True), lambda t: t["tree"].pop(),
                        lambda t: t["tree"][0].update(sha=A),

@@ -24,4 +24,5 @@ node wordpress/tests/preview-storage.cjs
 test -f wordpress/tests/test_preview_packages.py
 python3 -m unittest discover -s wordpress/tests -p 'test_preview_*.py'
 python3 -m unittest discover -s wordpress/tests -p 'test_controller_http_fixture.py'
+python3 -m unittest discover -s wordpress/tests -p 'test_wordpress_installer*.py'
 echo 'PASS: required syntax and unit gates (not an integration/browser result)'

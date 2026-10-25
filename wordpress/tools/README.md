@@ -34,7 +34,12 @@ SHA of the source checkout. Every regular file under `wordpress/pbin` is include
 including the binary language runtime assets. Unsupported source entries fail the
 build rather than being silently omitted. Output must be outside the source tree.
 
-The format is `manifest.json` plus `pbin/**`. The manifest is canonical JSON:
+The controller envelope format is `manifest.json` plus `pbin/**`. It is **not a
+standard WordPress plugin-upload ZIP**: the extra top-level manifest prevents
+WordPress’s upgrader from discovering the plugin header. Do not upload that
+archive in the WordPress dashboard. Use the separately tested derivative below.
+
+The envelope manifest is canonical JSON:
 
 ```json
 {
@@ -78,6 +83,29 @@ expanded limits are 64 MiB, per-file 32 MiB, manifest 1 MiB, and 8,192 payload
 files; compressed input is additionally limited to a 200:1 expansion ratio. The
 builder emits only uncompressed ZIPs. These bounds reject zip bombs before
 extraction. A digest mismatch never creates a staging root.
+
+## Standard WordPress installer derivative
+
+`wordpress_installer.py build --canonical pbin.zip --canonical-sha256 "$DIGEST"
+--revision "$REVISION" --output pbin-wordpress.zip --receipt installer.json`
+derives a deterministic ZIP containing only the verified `pbin/**` payload.
+It does not modify the envelope or plugin PHP/assets. The receipt binds the
+installer digest to the envelope digest, manifest digest, full source SHA and
+complete payload inventory; it is not a signature or independent authorization.
+
+Run `wordpress_installer.py verify --installer pbin-wordpress.zip
+--receipt installer.json --canonical pbin.zip --canonical-sha256 "$DIGEST"
+--revision "$REVISION"` before using downloaded bytes. Verification checks the
+canonical envelope first and regenerates the exact deterministic derivative;
+editing both the ZIP and its receipt cannot authorize another payload. Output
+paths must be new, and canonical files are never overwritten.
+
+CI retains this derivative separately as `pbin-wordpress-installer-<SHA>` only
+when real WordPress `Plugin_Upgrader` installation, installed-file integrity,
+activation and HTTP contracts pass alongside all existing runtime gates. The
+controller retains its original three-file bundle and continues to consume
+`pbin.zip`, not the installer derivative. Download the exact successful run’s
+installer; do not manually repackage an older green envelope and call it tested.
 
 ## Local staging lifecycle
 

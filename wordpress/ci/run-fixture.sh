@@ -24,6 +24,20 @@ export PBIN_ACCEPTANCE_URL="http://127.0.0.1:$PORT" PBIN_BASE_URL="http://127.0.
 export PBIN_WORDPRESS_LOAD="$WORK/site/wp-load.php"
 export PBIN_RATE_LIMIT=1000 PBIN_COMPLETION_RATE_LIMIT=1000
 unset HF_TOKEN COMPLETION_FALLBACK_URL COMPLETION_FALLBACK_TOKEN OPENAPIKEY
+# BEGIN guarded WordPress installer fixture
+if [[ "${PBIN_INSTALLER_GATE:-}" == 1 ]]; then
+    [[ "${CI:-}" == true && "${GITHUB_ACTIONS:-}" == true ]] || { echo 'WordPress installer gate requires the fresh hosted fixture'; exit 1; }
+    : "${PBIN_INSTALLER_ZIP:?Provide the standard WordPress installer ZIP}"
+    : "${PBIN_INSTALLER_RECEIPT:?Provide the installer binding receipt}"
+    : "${PBIN_INSTALLER_CANONICAL:?Provide the canonical envelope}"
+    : "${PBIN_INSTALLER_CANONICAL_SHA256:?Provide the canonical SHA-256}"
+    : "${PBIN_SOURCE_SHA:?Provide the exact source revision}"
+    python3 "$ROOT/wordpress/tools/wordpress_installer.py" verify \
+        --installer "$PBIN_INSTALLER_ZIP" --receipt "$PBIN_INSTALLER_RECEIPT" \
+        --canonical "$PBIN_INSTALLER_CANONICAL" --canonical-sha256 "$PBIN_INSTALLER_CANONICAL_SHA256" \
+        --revision "$PBIN_SOURCE_SHA"
+fi
+# END guarded WordPress installer fixture
 SERVER_PID='' DB_CREATED=0
 # BEGIN bounded fixture diagnostics (also exercised without a server by unit tests)
 fixture_failure_logs() {
@@ -66,7 +80,10 @@ mkdir "$WORK/site"
 cp -a "$CORE/." "$WORK/site/"
 mkdir -p "$WORK/site/wp-content/plugins"
 [[ ! -e "$WORK/site/wp-content/plugins/pbin" ]] || { echo 'Pristine core unexpectedly contains pbin'; exit 1; }
-ln -s "$PLUGIN" "$WORK/site/wp-content/plugins/pbin"
+# Only the dedicated gate installs with WordPress itself; never pre-place pbin.
+if [[ "${PBIN_INSTALLER_GATE:-}" != 1 ]]; then
+    ln -s "$PLUGIN" "$WORK/site/wp-content/plugins/pbin"
+fi
 if [[ -n "${PBIN_TEST_ARTIFACT:-}" ]]; then
     : "${PBIN_TEST_ARTIFACT_SHA256:?Provide the exact test artifact SHA-256}"
     export PBIN_TEST_PREVIEW_ROOT="$WORK/previews"

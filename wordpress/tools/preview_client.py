@@ -39,12 +39,14 @@ TEST_STEPS = {
     "Required syntax and unit checks", "Build reproducible artifact and extract exact bytes for tests",
     "Real WordPress, MySQL and Chromium tests against the built package",
     "Real WordPress controller HTTPS and authentication gate",
+    "Install standard ZIP through WordPress Plugin_Upgrader",
     "Canonical /paste routing on a real WordPress site", "Verify artifact did not change while tested",
-    "Transfer tested artifact to gated artifact job",
+    "Transfer tested artifact to gated artifact job", "Transfer tested WordPress installer",
 }
 ARTIFACT_STEPS = {"Download this run's tested bytes only", "Verify transported archive and exact revision",
-                  "Retain the exact tested package"}
-RECIPE_FILES = {CI_PATH, "wordpress/tools/package.py", "wordpress/preview/loader.php",
+                  "Retain the exact tested package", "Verify transported WordPress installer",
+                  "Retain exact tested WordPress installer"}
+RECIPE_FILES = {CI_PATH, "wordpress/tools/package.py", "wordpress/tools/wordpress_installer.py", "wordpress/preview/loader.php",
                 "wordpress/preview/selector.php"}
 RECIPE_DIRS = ("wordpress/preview/", "wordpress/ci/", "wordpress/tests/", "e2e/", "acceptance/")
 MAX_BUNDLE = 70 * 1024 * 1024

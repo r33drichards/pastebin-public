@@ -1,7 +1,7 @@
 # WordPress checks, artifact boundary and migration plan
 
-This is a **local implementation, not a green hosted CI or Wasmer deployment
-receipt**. A server socket/MySQL listener is prohibited in the implementation
+This document describes the test contract, not a deployment receipt.
+Check the exact commit’s CI result and separately verify its installed identity. A server socket/MySQL listener is prohibited in the implementation
 environment. Native syntax, unit, package and filesystem checks can run here;
 the mandatory real-WordPress and Chromium gates must run on a suitable host.
 
@@ -77,8 +77,14 @@ pin is no longer the required target gate.
 1. PHP syntax, route/template/script checks, platform bounds, autosave ordering,
    failure/retry/navigation helpers, tenant context/browser-storage unit tests,
    package validation, reproducibility and negative lifecycle tests.
-2. Build twice, compare ZIP bytes, verify archive + file hashes, and extract the
-   exact ZIP for every real runtime test. The ZIP is not rebuilt for promotion.
+2. Build the canonical controller envelope twice and compare ZIP bytes. Derive
+   a separate standard WordPress installer twice, with byte-identical payload and
+   a receipt binding both ZIP digests, manifest, revision and file inventory.
+   On a third fresh real WordPress site, `Plugin_Upgrader::install()` must reject
+   the envelope regression, then install the standard ZIP without any pre-placed
+   plugin. Verify every installed payload byte, activate it and run the canonical
+   HTTP contracts. Other runtime gates use the exact verified envelope bytes.
+   Neither archive is rebuilt after its gates or for promotion.
 3. Independent upstream HTTP contracts: create/PUT/raw, UTF-8/large documents,
    root/HEAD/language, snapshots/history, diffs, Markdown and errors. New checks
    cover packaged asset MIME/isolation, method compatibility and no WebSocket.
@@ -96,8 +102,14 @@ pin is no longer the required target gate.
    silently dropping an enabled runner. No Firefox/WebKit result is implied.
 7. A second real site verifies `/paste` canonical routing, legacy alias,
    language/ID handling, snapshots and ordinary WordPress home/login/REST.
-8. Only then does a separate `needs: [test]` job retain the same digest and
-   source revision. Logs have seven-day retention; packages fourteen days.
+8. Only then does a separate `needs: [test]` job download and reverify both
+   artifacts, including their payload binding, before retaining the same digests
+   and source revision. Logs have seven-day retention; packages fourteen days.
+   `pbin-wordpress-<SHA>` is the existing controller bundle, not a WP upload.
+   `pbin-wordpress-installer-<SHA>` contains `pbin-wordpress.zip` for the standard
+   Plugins → Add New → Upload flow, its binding receipt and checksums.
+   The installer gate proves WordPress’s install/activation path, not browser
+   upload authentication, Wasmer filesystem parity or per-PR deployment.
 
 Current gaps: native PHP64 cannot certify Wasm32 PHP, target Wasmer extensions,
 hosting limits or production configuration parity. Third-party runtime
@@ -108,8 +120,8 @@ have their own readiness gaps and are not implicitly part of this baseline.
 
 PR tests are secretless with read-only repository permissions, disabled checkout
 credential persistence, bounded concurrency and no `pull_request_target`.
-There is no deploy step, deploy token, SSH/WP password, or hosted installer in
-this workflow. A passing same-run artifact is not sufficient authorization to
+There is no deploy step, deploy token, real-host SSH/WP password, or Wasmer
+installer invocation in this workflow. The upgrader gate uses only a fresh CI site. A passing same-run artifact is not sufficient authorization to
 execute arbitrary branch PHP on shared staging.
 
 Before enabling a separate trusted installer, verify source repository and
