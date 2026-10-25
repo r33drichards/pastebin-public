@@ -112,6 +112,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tested-package-${{ env.PBIN_SOURCE_SHA }}
+          # Only this generated package directory; never include the checkout.
+          include-hidden-files: true
           path: .ci-artifacts/
           if-no-files-found: error
           retention-days: 2
@@ -120,6 +122,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wordpress-test-report-${{ env.PBIN_SOURCE_SHA }}
+          # The fixture copies only named logs, never wp-config.php or DB dumps.
+          include-hidden-files: true
           path: |
             .ci-results/
             e2e/playwright-report/
