@@ -25,8 +25,8 @@ test('a URL import from a non-allowlisted host is refused', async ({ page }) => 
 });
 
 test('the Effect Trace starter runs with traced spans in the trace tab', async ({ page }) => {
-  // Effect's graph is ~290 modules; the first fetch through a cold cache can
-  // be slow, so this test gets its own generous budget.
+  // Effect's subpath dependency graph still needs a generous budget on a
+  // cold CDN cache. Exercise the real imports and keep every trace assertion.
   test.setTimeout(600_000);
   await openRoom(page, 'typescript');
 

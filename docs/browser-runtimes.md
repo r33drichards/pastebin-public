@@ -186,7 +186,7 @@ Plain JavaScript/TypeScript runs support Deno-style `https://` imports from
 module CDNs — `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`:
 
 ```ts
-import { Effect } from 'https://esm.sh/effect@3.12.0?bundle';
+import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
 ```
 
 The sandbox itself stays offline: like Deno, the module graph is resolved
@@ -207,7 +207,10 @@ same span waterfall as the OTel shim — with correctly parented spans under
 concurrency, since Effect carries the parent on its fibers:
 
 ```ts
-import { Effect, Tracer, Layer, Cause } from 'https://esm.sh/effect@3.12.0?bundle';
+import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
+import * as Tracer from 'https://esm.sh/effect@3.12.0/Tracer?target=es2022';
+import * as Layer from 'https://esm.sh/effect@3.12.0/Layer?target=es2022';
+import * as Cause from 'https://esm.sh/effect@3.12.0/Cause?target=es2022';
 import { makeEffectTracing } from 'pbin/effect-tracing';
 
 const TracingLive = makeEffectTracing({ Tracer, Layer, Cause });

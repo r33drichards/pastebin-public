@@ -48,8 +48,8 @@
   <!-- React for JSX rendering -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- Babel Standalone for JSX transformation -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Pin Babel to the same version used by js-debug-worker.js. -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js"></script>
   <!-- ninja-keys: the Ctrl/Cmd+K command menu component (actions wired in
        static/js/command-palette.js) -->
   <script type="module" src="https://cdn.jsdelivr.net/npm/ninja-keys@1.2.2/+esm" crossorigin="anonymous"></script>

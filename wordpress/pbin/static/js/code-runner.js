@@ -2337,9 +2337,11 @@ async function runReactCode(code, outputEl) {
     const memoryBefore = performance.memory ? performance.memory.usedJSHeapSize : null;
     const startTime = performance.now();
 
-    // Transform JSX to JavaScript using Babel
+    // This runner evaluates a function with the UMD React globals in scope.
+    // The automatic JSX runtime emits ESM imports that new Function cannot
+    // parse, so select classic explicitly rather than relying on Babel defaults.
     const transformed = Babel.transform(code, {
-      presets: ['react'],
+      presets: [['react', { runtime: 'classic' }]],
       filename: 'component.jsx'
     });
 
@@ -2658,7 +2660,7 @@ function getOtelModuleSource() {
 // ---- URL module imports (QuickJS runs) --------------------------------------
 // Deno-style https:// imports for JavaScript/TypeScript pastes:
 //
-//   import { Effect } from 'https://esm.sh/effect@3.12.0?bundle';
+//   import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
 //
 // The sandbox itself stays offline — like Deno, the module graph is resolved
 // and fetched BEFORE execution, here on the page (allowlisted module CDNs

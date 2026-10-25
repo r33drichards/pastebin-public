@@ -11,7 +11,10 @@ while IFS= read -r -d '' file; do "$PHP" -l "$file" >/dev/null; done < <(find wo
 node wordpress/tests/template-syntax.cjs "$WORK/templates.json"
 "$PHP" wordpress/tests/platform-compat.php
 node wordpress/tests/single-user-editor.cjs
+node wordpress/tests/jsx-runner.cjs
+node wordpress/tests/effect-starter.cjs
 "$PHP" wordpress/tests/preview-tenancy.php
+"$PHP" wordpress/tests/preview-bootstrap-state.php
 node wordpress/tests/preview-storage.cjs
 test -f wordpress/tests/test_preview_packages.py
 python3 -m unittest discover -s wordpress/tests -p 'test_preview_packages.py'

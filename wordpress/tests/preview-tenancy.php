@@ -125,40 +125,43 @@ final class PreviewFixtureDB {
 // expect-missing <bundle>     => prove other tenant's IDs are absent
 if (str_starts_with($mode, '--wordpress-context=')) {
     check(getenv('PBIN_TEST_ALLOW_DATABASE_MUTATION') === '1', 'Real WordPress tests require an explicit disposable fixture mutation flag');
-    $fixtureRoot = getenv('PBIN_WP_FIXTURE') ?: '';
-    check($fixtureRoot !== '' && is_dir($fixtureRoot) && realpath($fixtureRoot) === $fixtureRoot, 'PBIN_WP_FIXTURE must name the canonical disposable fixture directory');
-    $key = substr($mode, strlen('--wordpress-context='));
-    check(preg_match('/^pr_9[0-9]{5,9}$/D', $key) === 1, 'Real database test requires a dedicated pr_9xxxxx tenant');
-    $action = $argv[2] ?? '';
-    check(in_array($action, ['write', 'read', 'expect-missing'], true), 'Invalid real database action');
-    $input = isset($argv[3]) ? json_decode($argv[3], true, 32, JSON_THROW_ON_ERROR) : [];
-    check(is_array($input), 'Real database input must be an object');
-    $wpLoad = getenv('PBIN_WORDPRESS_LOAD') ?: '';
-    check($wpLoad === $fixtureRoot . '/site/wp-load.php' && is_file($wpLoad) && realpath($wpLoad) === $wpLoad, 'PBIN_WORDPRESS_LOAD must name this disposable fixture site/wp-load.php');
-    $expectedDB = getenv('PBIN_TEST_DATABASE_NAME') ?: '';
-    check(preg_match('/^pbin_ci_[a-f0-9]{24}$/D', $expectedDB) === 1, 'PBIN_TEST_DATABASE_NAME must identify the unique pbin_ci_ fixture database');
+    // WordPress bootstraps in global scope and may reuse/unset generic names
+    // (default-filters.php unsets $action). Keep our request state distinct,
+    // without moving WordPress requires into function/local scope.
+    $pbinFixtureRoot = getenv('PBIN_WP_FIXTURE') ?: '';
+    check($pbinFixtureRoot !== '' && is_dir($pbinFixtureRoot) && realpath($pbinFixtureRoot) === $pbinFixtureRoot, 'PBIN_WP_FIXTURE must name the canonical disposable fixture directory');
+    $pbinFixtureKey = substr($mode, strlen('--wordpress-context='));
+    check(preg_match('/^pr_9[0-9]{5,9}$/D', $pbinFixtureKey) === 1, 'Real database test requires a dedicated pr_9xxxxx tenant');
+    $pbinFixtureAction = $argv[2] ?? '';
+    check(in_array($pbinFixtureAction, ['write', 'read', 'expect-missing'], true), 'Invalid real database action');
+    $pbinFixtureInput = isset($argv[3]) ? json_decode($argv[3], true, 32, JSON_THROW_ON_ERROR) : [];
+    check(is_array($pbinFixtureInput), 'Real database input must be an object');
+    $pbinFixtureWpLoad = getenv('PBIN_WORDPRESS_LOAD') ?: '';
+    check($pbinFixtureWpLoad === $pbinFixtureRoot . '/site/wp-load.php' && is_file($pbinFixtureWpLoad) && realpath($pbinFixtureWpLoad) === $pbinFixtureWpLoad, 'PBIN_WORDPRESS_LOAD must name this disposable fixture site/wp-load.php');
+    $pbinFixtureExpectedDB = getenv('PBIN_TEST_DATABASE_NAME') ?: '';
+    check(preg_match('/^pbin_ci_[a-f0-9]{24}$/D', $pbinFixtureExpectedDB) === 1, 'PBIN_TEST_DATABASE_NAME must identify the unique pbin_ci_ fixture database');
     // Register filters before wp-settings loads active plugins. The MU control
     // plane rejects native CLI, so neither it nor the default plugin can select
     // a context before this explicit fixture request.
-    require dirname($wpLoad) . '/wp-includes/plugin.php';
-    $normalPlugin = getenv('PBIN_TEST_NORMAL_PLUGIN') ?: 'pbin/pbin.php';
-    add_filter('option_active_plugins', static fn($plugins) => array_values(array_diff((array) $plugins, [$normalPlugin])));
-    add_filter('site_option_active_sitewide_plugins', static function ($plugins) use ($normalPlugin) { unset($plugins[$normalPlugin]); return $plugins; });
+    require dirname($pbinFixtureWpLoad) . '/wp-includes/plugin.php';
+    $pbinFixtureNormalPlugin = getenv('PBIN_TEST_NORMAL_PLUGIN') ?: 'pbin/pbin.php';
+    add_filter('option_active_plugins', static fn($plugins) => array_values(array_diff((array) $plugins, [$pbinFixtureNormalPlugin])));
+    add_filter('site_option_active_sitewide_plugins', static function ($plugins) use ($pbinFixtureNormalPlugin) { unset($plugins[$pbinFixtureNormalPlugin]); return $plugins; });
     if (!defined('DISABLE_WP_CRON')) { define('DISABLE_WP_CRON', true); }
-    require $wpLoad;
-    check(defined('DB_NAME') && DB_NAME === $expectedDB, 'Refusing to test a database outside the named fixture');
+    require $pbinFixtureWpLoad;
+    check(defined('DB_NAME') && DB_NAME === $pbinFixtureExpectedDB, 'Refusing to test a database outside the named fixture');
     check(defined('DB_HOST') && preg_match('~^(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+|:/[^\r\n]+)?$~D', DB_HOST) === 1, 'Real database fixture must use localhost');
     check(!class_exists(Instance::class, false), 'A plugin selected or loaded its runtime before the fixture');
     $plugin = getenv('PBIN_TEST_PLUGIN_DIR') ?: realpath(dirname(__DIR__) . '/pbin');
     check(is_dir($plugin) && realpath($plugin) === $plugin && is_file($plugin . '/runtime.php') && !is_link($plugin . '/runtime.php'), 'PBIN_TEST_PLUGIN_DIR must name the canonical extracted plugin');
     require $plugin . '/runtime.php';
-    $instance = new Instance($key, '/previews/' . str_replace('_', '-', $key), $plugin, PREVIEW_TEST_A, true);
+    $instance = new Instance($pbinFixtureKey, '/previews/' . str_replace('_', '-', $pbinFixtureKey), $plugin, PREVIEW_TEST_A, true);
     Instance::select($instance);
     $store = new PBIN_Store($GLOBALS['wpdb']);
     $db = $GLOBALS['wpdb'];
     $prefix = $db->prefix . $instance->storagePrefix();
-    if ($action === 'write') {
-        $runId = $input['run_id'] ?? bin2hex(random_bytes(8));
+    if ($pbinFixtureAction === 'write') {
+        $runId = $pbinFixtureInput['run_id'] ?? bin2hex(random_bytes(8));
         check(is_string($runId) && preg_match('/^[a-zA-Z0-9_-]{1,80}$/D', $runId) === 1, 'Invalid fixture run ID');
         $defaultSchema = get_option('pbin_schema_version', null);
         $defaultMarker = get_option('pbin_fixture_marker', null);
@@ -170,7 +173,7 @@ if (str_starts_with($mode, '--wordpress-context=')) {
             check($db->get_var($db->prepare('SHOW TABLES LIKE %s', $db->esc_like($table))) === $table, 'Actual tenant table missing');
             $tables[] = $table;
         }
-        $text = $key . ':' . $runId;
+        $text = $pbinFixtureKey . ':' . $runId;
         $pasteID = $store->AddPaste('original:' . $text, 'text', 'fixture');
         $diffID = $store->AddDiff('old:' . $text, 'new:' . $text);
         $snapshot = $store->AddSnapshot($pasteID, 'fixture-snapshot', 'snapshot:' . $text, 'text', 'immutable-fixture');
@@ -184,25 +187,25 @@ if (str_starts_with($mode, '--wordpress-context=')) {
         check($store->AllowRequest($route, 0.001), 'First actual tenant limiter request denied');
         check(!$store->AllowRequest($route, 0.001), 'Actual tenant limiter did not isolate/update its bucket');
         check(get_option('pbin_schema_version', null) === $defaultSchema && get_option('pbin_fixture_marker', null) === $defaultMarker, 'Preview altered production option');
-        $result = ['key' => $key, 'run_id' => $runId, 'prefix' => $prefix, 'tables' => $tables,
+        $result = ['key' => $pbinFixtureKey, 'run_id' => $runId, 'prefix' => $prefix, 'tables' => $tables,
             'schema_option' => $instance->optionKey('schema_version'), 'marker' => $marker,
             'paste' => $store->GetPaste($pasteID), 'diff' => $store->GetDiff($diffID), 'snapshot' => $store->GetSnapshot($snapshot['ID']),
             'actual_mysql' => true];
     } else {
-        foreach (['paste', 'diff', 'snapshot'] as $type) { check(isset($input[$type]['ID']), 'Missing input ' . $type . ' ID'); }
+        foreach (['paste', 'diff', 'snapshot'] as $type) { check(isset($pbinFixtureInput[$type]['ID']), 'Missing input ' . $type . ' ID'); }
         $getters = ['paste' => 'GetPaste', 'diff' => 'GetDiff', 'snapshot' => 'GetSnapshot'];
-        if ($action === 'read') {
-            check(($input['key'] ?? null) === $key, 'Use expect-missing for cross-tenant reads');
-            foreach ($getters as $type => $method) { check($store->$method($input[$type]['ID']) === $input[$type], 'Actual persisted ' . $type . ' changed'); }
-            check(get_option($instance->optionKey('fixture_marker')) === ($input['marker'] ?? null), 'Actual tenant option changed');
+        if ($pbinFixtureAction === 'read') {
+            check(($pbinFixtureInput['key'] ?? null) === $pbinFixtureKey, 'Use expect-missing for cross-tenant reads');
+            foreach ($getters as $type => $method) { check($store->$method($pbinFixtureInput[$type]['ID']) === $pbinFixtureInput[$type], 'Actual persisted ' . $type . ' changed'); }
+            check(get_option($instance->optionKey('fixture_marker')) === ($pbinFixtureInput['marker'] ?? null), 'Actual tenant option changed');
             check(get_option($instance->optionKey('schema_version')) === PBIN_Store::SCHEMA_VERSION, 'Actual schema option changed');
         } else {
-            check(($input['key'] ?? null) !== $key, 'Cross-tenant negative test requires another tenant');
-            foreach ($getters as $type => $method) { expectedException(fn() => $store->$method($input[$type]['ID']), 'Cross-tenant ' . $type . ' visibility', OutOfBoundsException::class); }
-            check($store->ListSnapshots($input['paste']['ID']) === [], 'Cross-tenant snapshot listing leaked data');
-            check(get_option($instance->optionKey('fixture_marker')) !== ($input['marker'] ?? null), 'Cross-tenant option leaked marker');
+            check(($pbinFixtureInput['key'] ?? null) !== $pbinFixtureKey, 'Cross-tenant negative test requires another tenant');
+            foreach ($getters as $type => $method) { expectedException(fn() => $store->$method($pbinFixtureInput[$type]['ID']), 'Cross-tenant ' . $type . ' visibility', OutOfBoundsException::class); }
+            check($store->ListSnapshots($pbinFixtureInput['paste']['ID']) === [], 'Cross-tenant snapshot listing leaked data');
+            check(get_option($instance->optionKey('fixture_marker')) !== ($pbinFixtureInput['marker'] ?? null), 'Cross-tenant option leaked marker');
         }
-        $result = ['key' => $key, 'action' => $action, 'verified' => true, 'actual_mysql' => true];
+        $result = ['key' => $pbinFixtureKey, 'action' => $pbinFixtureAction, 'verified' => true, 'actual_mysql' => true];
     }
     check($db->last_error === '', 'Real database reported an error');
     echo json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), "\n";
