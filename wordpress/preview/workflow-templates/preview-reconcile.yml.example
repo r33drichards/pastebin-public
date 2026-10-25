@@ -1,0 +1,70 @@
+# PROPOSAL ONLY: not loaded by GitHub Actions from this directory or .example.
+# Do not copy to .github/workflows/ until the controller, permissions, credential
+# approval and staging validation in ../AUTOMATION.md have been completed.
+name: Reconcile trusted WordPress previews
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_requests:
+        description: "Explicit PR numbers to recover, comma-separated (1–20; no spaces)"
+        required: true
+        type: string
+  workflow_run:
+    workflows: [WordPress checks and immutable artifact]
+    types: [completed]
+  # Closed-only cleanup runs the default-branch workflow, not PR code.
+  # Never add opened/synchronize events or a PR checkout to this privileged job.
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+# Serialize each tenant across CI events and closed cleanup.
+# A late CI event for a closed trusted PR reconciles retirement, not promotion.
+# Explicit recovery may overlap event runs: authoritative CAS rejects conflicts,
+# without token refresh or mutation retry. Recovery never bypasses per-PR gates.
+# Do not cancel after a mutation: cancellation cannot safely undo that mutation.
+concurrency:
+  group: trusted-pbin-staging-pr-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: >-
+      github.repository == 'r33drichards/pastebin-public' &&
+      vars.PBIN_PREVIEWS_ENABLED == 'true' &&
+      vars.PBIN_CONTROL_SHA != '' &&
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+       (github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
+       github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging-previews
+    steps:
+      - name: Check out reviewed control code only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: r33drichards/pastebin-public
+          ref: ${{ vars.PBIN_CONTROL_SHA }}
+          persist-credentials: false
+          # No submodules, caches, PR checkout, downloaded action or artifact exec.
+      - name: Set up pinned Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.10'
+      - name: Reconcile GitHub eligibility and staging token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PBIN_PREVIEWS_ENABLED: ${{ vars.PBIN_PREVIEWS_ENABLED }}
+          PBIN_CONTROL_SHA: ${{ vars.PBIN_CONTROL_SHA }}
+          PBIN_REPOSITORY_ID: ${{ vars.PBIN_REPOSITORY_ID }}
+          PBIN_OWNER_ID: ${{ vars.PBIN_OWNER_ID }}
+          PBIN_CI_WORKFLOW_ID: ${{ vars.PBIN_CI_WORKFLOW_ID }}
+          PBIN_STAGING_USER: ${{ vars.PBIN_STAGING_USER }}
+          PBIN_STAGING_APPLICATION_PASSWORD: ${{ secrets.PBIN_STAGING_APPLICATION_PASSWORD }}
+        run: python3 wordpress/tools/preview_client.py

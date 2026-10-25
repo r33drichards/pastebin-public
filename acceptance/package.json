@@ -2,9 +2,6 @@
   "name": "pbin-independent-acceptance",
   "private": true,
   "scripts": {
-    "http": "node --test http-contract.test.mjs",
-    "websocket": "node websocket-http-contract.cjs",
-    "browser": "node browser-contract.cjs"
-  },
-  "devDependencies": {"playwright": "1.63.0", "ws": "8.18.3"}
+    "http": "node --test http-contract.test.mjs"
+  }
 }

@@ -34,7 +34,7 @@
   var mq = matchMedia('(prefers-color-scheme: dark)');
 
   function stored() {
-    try { return localStorage.getItem('pbin-theme'); } catch (e) { return null; }
+    try { return window.pbinStorage.getItem('pbin-theme'); } catch (e) { return null; }
   }
   function mode() { var s = stored(); return s === 'light' || s === 'dark' ? s : 'system'; }
   function resolve(m) { return m === 'system' ? (mq.matches ? 'dark' : 'light') : m; }
@@ -73,14 +73,14 @@
   }
 
   var q = (location.search.match(/[?&]theme=(dark|light)/) || [])[1];
-  if (q) { try { localStorage.setItem('pbin-theme', q); } catch (e) {} }
+  if (q) { try { window.pbinStorage.setItem('pbin-theme', q); } catch (e) {} }
 
   window.pbinThemeMode = mode;
   window.pbinRenderThemeButton = renderButton;
   window.pbinSetTheme = function (m) {
     try {
-      if (m === 'system') localStorage.removeItem('pbin-theme');
-      else localStorage.setItem('pbin-theme', m);
+      if (m === 'system') window.pbinStorage.removeItem('pbin-theme');
+      else window.pbinStorage.setItem('pbin-theme', m);
     } catch (e) {}
     apply();
     renderButton();

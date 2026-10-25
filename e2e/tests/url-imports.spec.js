@@ -1,9 +1,8 @@
 // Deno-style URL module imports (code-runner.js): the https:// module graph
 // is fetched from allowlisted CDNs before the run and mirrored into the
 // QuickJS virtual filesystem, so the sandbox itself stays offline. The Effect
-// test doubles as coverage for the pbin/effect-tracing bridge into the span
-// waterfall (trace-view.js) and for the web-globals prelude, which Effect's
-// modules need at evaluation time.
+// starter instead uses the pinned first-party graph and covers its tracing
+// bridge, span waterfall and web-globals prelude without contacting esm.sh.
 const { test, expect } = require('@playwright/test');
 const { openRoom, setCode, run } = require('./helpers');
 
@@ -25,8 +24,8 @@ test('a URL import from a non-allowlisted host is refused', async ({ page }) => 
 });
 
 test('the Effect Trace starter runs with traced spans in the trace tab', async ({ page }) => {
-  // Effect's graph is ~290 modules; the first fetch through a cold cache can
-  // be slow, so this test gets its own generous budget.
+  // The real Effect graph is served by the plugin, not a build-on-demand CDN.
+  // QuickJS/Runno still loads externally; keep the full runtime/trace budget.
   test.setTimeout(600_000);
   await openRoom(page, 'typescript');
 
@@ -36,6 +35,8 @@ test('the Effect Trace starter runs with traced spans in the trace tab', async (
   await page.click('#effectTracingButton');
   await expect.poll(() => page.evaluate(() => window.getValue())).toContain('pbin/effect-tracing');
 
+  // Prove the starter no longer depends on esm.sh, even when that CDN fails.
+  await page.route('https://esm.sh/**', route => route.abort('failed'));
   const output = await run(page, 540_000);
   expect(output).toContain('total:');
 

@@ -1,6 +1,8 @@
 // Pyodide worker: runs Python (CPython compiled to WebAssembly) off the main
 // thread, so heavy computation never freezes the editor and the main thread
 // can cancel a run by terminating the worker.
+// This worker is not a security sandbox: Python can bridge to JavaScript.
+// Deployment must isolate it from privileged origins and cookies.
 //
 // Protocol: the main thread posts {code, stdin, files: [{name, bytes}],
 // debug}; the worker answers with {type: 'status', text} progress updates

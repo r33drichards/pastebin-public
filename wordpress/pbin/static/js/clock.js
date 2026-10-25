@@ -58,7 +58,7 @@
 
   function save() {
     try {
-      localStorage.setItem(STORE_KEY, JSON.stringify({ sw: sw, tm: tm, mode: mode }));
+      window.pbinStorage.setItem(STORE_KEY, JSON.stringify({ sw: sw, tm: tm, mode: mode }));
     } catch (e) { /* persistence is a nicety; never let it break the clock */ }
   }
 
@@ -69,7 +69,7 @@
   // wall clock says it should be, not where it was last rendered.
   function load() {
     var raw = null;
-    try { raw = localStorage.getItem(STORE_KEY); } catch (e) { return; }
+    try { raw = window.pbinStorage.getItem(STORE_KEY); } catch (e) { return; }
     if (!raw) return;
     var s;
     try { s = JSON.parse(raw); } catch (e) { return; }

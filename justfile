@@ -1,18 +1,10 @@
-tidy:
-    go mod tidy
-    gomod2nix 
+# The supported application backend is WordPress/PHP/MySQL.
+unit:
+    bash wordpress/ci/check-unit.sh
 
-build: tidy 
-    nix build .#dockerImage
-    docker load -i ./result
+package revision output="/tmp/pbin.zip":
+    python3 wordpress/tools/package.py --source wordpress/pbin --revision "{{revision}}" --output "{{output}}"
 
-run: build
-    docker run --env-file .env -p 8000:8000 pbin:latest
-
-lint:
-    go fmt
-    npx prettier --parser html --write templates/*
-    npx prettier --write README.md
-
-clean:
-    rm -rf result
+# Requires the disposable database/core/artifact variables in wordpress/ci/README.md.
+integration:
+    bash wordpress/ci/run-fixture.sh bash wordpress/ci/run-contracts.sh

@@ -50,10 +50,11 @@ const MAX_WATCHES = 20;
 const MAX_CHILDREN = 200;
 const HISTORY_LIMIT = 200;
 
-// ---- sandbox ---------------------------------------------------------------
-// The QuickJS runtime has no network or storage; strip the worker's own
-// before any user code runs so a debug run can't do more than a plain one.
+// ---- capability reduction (NOT a security sandbox) --------------------------
+// Remove selected worker globals as defense in depth. This is not proof that
+// arbitrary debug code cannot recover networking or access same-origin cookies.
 // A private fetch reference survives for loading the pinned Babel bundle.
+// Deployment must isolate this runtime from privileged origins and cookies.
 const privateFetch = self.fetch.bind(self);
 for (const name of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
   'indexedDB', 'caches', 'importScripts']) {

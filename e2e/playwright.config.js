@@ -1,11 +1,12 @@
-// Browser end-to-end tests. By default they build and start a local server
-// with a throwaway database; set PBIN_BASE_URL to test a deployed instance.
+// Browser tests target an explicitly supplied WordPress fixture. They never
+// build/start the retired Go application server or silently reuse another site.
 const { defineConfig } = require('@playwright/test');
-const os = require('os');
-const path = require('path');
-
-const port = process.env.PBIN_E2E_PORT || '8799';
 const external = process.env.PBIN_BASE_URL;
+if (!external) {
+  throw new Error('Set PBIN_BASE_URL to an isolated WordPress instance, or run via wordpress/ci/run-fixture.sh');
+}
+const baseURL = external.replace(/\/$/, '') + '/';
+if (!/^https?:\/\//.test(baseURL)) throw new Error('PBIN_BASE_URL must be an HTTP(S) URL');
 
 module.exports = defineConfig({
   testDir: './tests',
@@ -19,23 +20,11 @@ module.exports = defineConfig({
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [['github'], ['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: external || `http://localhost:${port}`,
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   // No device preset: its user agent would make the editor pick the wrong
   // platform's keyboard shortcuts.
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-  webServer: external ? undefined : {
-    command: 'go run .',
-    cwd: path.join(__dirname, '..'),
-    url: `http://localhost:${port}/health`,
-    timeout: 180_000,
-    reuseExistingServer: !process.env.CI,
-    env: {
-      PORT: port,
-      PBIN_RATE_LIMIT: '1000',
-      DB_PATH: path.join(os.tmpdir(), `pbin-e2e-${process.pid}.db`),
-    },
-  },
 });

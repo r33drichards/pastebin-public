@@ -1,4 +1,6 @@
 <?php
+namespace Pbin\Plugin;
+
 defined('ABSPATH') || exit;
 
 final class PBIN_Completion {
@@ -8,6 +10,7 @@ final class PBIN_Completion {
     private const TOKENS = ['<|endoftext|>', self::PREFIX, self::SUFFIX, self::MIDDLE, '<|fim_pad|>', '<|repo_name|>', '<|file_sep|>', '<|im_start|>', '<|im_end|>'];
 
     private static function env(string $key, string $fallback = ''): string {
+        if (Instance::current()->preview && $key !== 'COMPLETION_TIMEOUT_SECONDS') { return $fallback; }
         $value = getenv($key); return $value !== false && $value !== '' ? $value : $fallback;
     }
     private static function timeout(): int {

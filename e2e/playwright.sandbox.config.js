@@ -1,8 +1,6 @@
-// Config for sandboxed/proxied environments (e.g. Claude Code cloud sessions)
-// where an agent proxy re-signs TLS with its own CA: Chromium rejects the
-// CDN's re-signed certificates, so ignore certificate errors, and retry
-// since the interception is also flaky. CI and local dev use the default
-// playwright.config.js instead.
+// Optional preinstalled Chromium configuration for restricted environments.
+// Certificate verification remains enabled. Fix trust at the environment level
+// rather than treating a broken/intercepted TLS path as successful coverage.
 //
 // Usage: npx playwright test --config playwright.sandbox.config.js
 const fs = require('fs');
@@ -17,5 +15,5 @@ const launchOptions = fs.existsSync(prebuilt) ? { executablePath: prebuilt } : {
 module.exports = {
   ...base,
   retries: 4,
-  use: { ...base.use, ignoreHTTPSErrors: true, launchOptions },
+  use: { ...base.use, launchOptions },
 };

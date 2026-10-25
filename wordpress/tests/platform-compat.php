@@ -1,8 +1,13 @@
 <?php
+use Pbin\Plugin\Instance;
+use Pbin\Plugin\PBIN_Store;
+use Pbin\Plugin\PBIN_Completion;
 // Portable helper regression tests. Run with the target PHP interpreter to
 // verify its integer width; native PHP64 results do not certify wasm32.
 define('ABSPATH', __DIR__ . '/');
 define('ARRAY_A', 'ARRAY_A');
+require dirname(__DIR__) . '/pbin/includes/instance.php';
+Instance::select(new Instance('default', '', dirname(__DIR__) . '/pbin'));
 require dirname(__DIR__) . '/pbin/includes/store.php';
 require dirname(__DIR__) . '/pbin/includes/completion.php';
 

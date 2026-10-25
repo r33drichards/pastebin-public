@@ -1,34 +1,17 @@
-# Independent WordPress parity acceptance
+# Independent HTTP acceptance
 
-These independent suites compare the Go backend and the WordPress implementation.
+`http-contract.test.mjs` is the retained black-box HTTP contract. It uses Node's
+built-in test runner and fetch, and imports no plugin implementation.
 
-The suites exercise public HTTP, WebSocket and browser behavior, without importing
-either backend's implementation. IDs are compared relationally, timestamps are
-validated rather than snapshot-compared, and Unicode/persistence assertions are
-semantic. Visual snapshots are optional supporting evidence, not an oracle.
+Run only against an isolated disposable WordPress/MySQL instance. Tests create
+and edit data. The supported fixture and complete browser gates are documented in
+[wordpress/ci/README.md](../wordpress/ci/README.md).
 
-Use ONLY an isolated disposable instance. These suites create and edit data.
+    PBIN_ACCEPTANCE_URL=http://127.0.0.1:18081 node --test acceptance/http-contract.test.mjs
 
-```
-PBIN_ACCEPTANCE_URL=http://127.0.0.1:8000 node --test acceptance/http-contract.test.mjs
-PBIN_ACCEPTANCE_URL=http://127.0.0.1:8000 node acceptance/browser-contract.cjs
-PBIN_ACCEPTANCE_URL=http://127.0.0.1:8000 node acceptance/websocket-http-contract.cjs
-```
+The former WebSocket/collaboration browser contracts and their dependencies were
+removed with the intentionally dropped realtime feature. Single-user editor,
+autosave, shared-preview storage and language execution coverage lives in `e2e/`.
+No Go server or companion process is required.
 
-Browser scripts need Playwright (PBIN_PLAYWRIGHT_MODULE can select its installed
-path) and Chromium (PBIN_CHROMIUM can select its executable). Run npm ci in acceptance/ to install pinned Playwright and ws dependencies.
-PBIN_WS_MODULE can select an existing Playwright utilsBundle for local development.
-
-## Required verification
-
-Run the same suites against isolated Go and WordPress instances. Passing HTTP
-scenarios alone does not establish full browser, realtime, or language-runner
-parity. Verify presence, concurrent inserts, UTF-16 editing, cursor and language
-changes, last-close persistence, reconnect and duplicate-operation handling,
-history truncation, malformed and oversized messages, restart durability,
-migration idempotence, concurrent HTTP and OT writes, optional completions,
-every supported language runner, mobile navigation, and subdirectory mounts.
-
-The WordPress companion requires a supported long-running PHP process and
-WebSocket proxy routing. Verify these requirements on the intended host before
-claiming deployment readiness. Use no production site or database for tests.
+No new MySQL, HTTP, Chromium or Wasmer pass is claimed by this documentation.

@@ -198,7 +198,7 @@
     persistTimer = setTimeout(() => {
       try {
         const stored = breakpointList().map((e) => ({ line: e.line, condition: e.bp.condition, enabled: e.bp.enabled }));
-        localStorage.setItem(bpStorageKey(), JSON.stringify(stored));
+        window.pbinStorage.setItem(bpStorageKey(), JSON.stringify(stored));
       } catch (e) {}
       renderBpList();
     }, 400);
@@ -206,7 +206,7 @@
 
   function restoreBreakpoints() {
     let stored = [];
-    try { stored = JSON.parse(localStorage.getItem(bpStorageKey()) || '[]'); } catch (e) {}
+    try { stored = JSON.parse(window.pbinStorage.getItem(bpStorageKey()) || '[]'); } catch (e) {}
     const model = ctx.editor.getModel();
     const max = model ? model.getLineCount() : 0;
     for (const entry of stored) {
@@ -230,7 +230,7 @@
 
   function restoreRunMode() {
     try {
-      const saved = localStorage.getItem(runModeKey());
+      const saved = window.pbinStorage.getItem(runModeKey());
       runMode = saved === 'debug' ? 'debug' : 'plain';
     } catch (e) { runMode = 'plain'; }
   }
@@ -238,7 +238,7 @@
   // ---- pause-on-exception toggle (persistent per paste) ----------------------
 
   function restorePauseOnException() {
-    try { pauseOnException = localStorage.getItem(pauseExcKey()) === 'on'; }
+    try { pauseOnException = window.pbinStorage.getItem(pauseExcKey()) === 'on'; }
     catch (e) { pauseOnException = false; }
   }
 
@@ -249,7 +249,7 @@
 
   function setPauseOnException(on) {
     pauseOnException = !!on;
-    try { localStorage.setItem(pauseExcKey(), pauseOnException ? 'on' : 'off'); } catch (e) {}
+    try { window.pbinStorage.setItem(pauseExcKey(), pauseOnException ? 'on' : 'off'); } catch (e) {}
     updatePauseExcUi();
     // If a live run is sitting paused, the new value rides the next resume
     // (resumeConfig); nothing else to push now.
@@ -278,20 +278,20 @@
 
   function setRunMode(mode) {
     runMode = mode === 'debug' ? 'debug' : 'plain';
-    try { localStorage.setItem(runModeKey(), runMode); } catch (e) {}
+    try { window.pbinStorage.setItem(runModeKey(), runMode); } catch (e) {}
     updateRunModeUi();
     updatePanelVisibility();
   }
 
   function restoreWatches() {
     try {
-      const stored = JSON.parse(localStorage.getItem(watchStorageKey()) || '[]');
+      const stored = JSON.parse(window.pbinStorage.getItem(watchStorageKey()) || '[]');
       watches = stored.filter((w) => typeof w === 'string' && w.trim() !== '').slice(0, 20);
     } catch (e) { watches = []; }
   }
 
   function persistWatches() {
-    try { localStorage.setItem(watchStorageKey(), JSON.stringify(watches)); } catch (e) {}
+    try { window.pbinStorage.setItem(watchStorageKey(), JSON.stringify(watches)); } catch (e) {}
   }
 
   // ---- panel -----------------------------------------------------------------

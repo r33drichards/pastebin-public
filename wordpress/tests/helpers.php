@@ -1,9 +1,16 @@
 <?php
+use Pbin\Plugin\Instance;
+use Pbin\Plugin\PBIN_Completion;
+use function Pbin\Plugin\pbin_path;
+use function Pbin\Plugin\pbin_json;
+use function Pbin\Plugin\pbin_html;
 // Focused implementation tests. The independent acceptance/ suite remains the
 // black-box parity gate; these tests do not replace a WordPress/MySQL run.
 define('ABSPATH', __DIR__ . '/');
 define('PBIN_PLUGIN_DIR', dirname(__DIR__) . '/pbin');
 define('PBIN_WP_BASE_PATH', '/site/pbin');
+require PBIN_PLUGIN_DIR . '/includes/instance.php';
+Instance::select(new Instance('default', PBIN_WP_BASE_PATH, PBIN_PLUGIN_DIR));
 require PBIN_PLUGIN_DIR . '/includes/http.php';
 require PBIN_PLUGIN_DIR . '/includes/completion.php';
 

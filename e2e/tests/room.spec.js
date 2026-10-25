@@ -1,4 +1,4 @@
-// The room itself: creating and joining, live sync and autosave, and the
+// The WordPress single-user editor: creating and reopening, HTTP autosave, and the
 // toolbar (language picker, Auto Run, output panel, copy/share, Hello World).
 const { test, expect } = require('@playwright/test');
 const { openRoom, waitLive, setCode, getCode, run, storedText } = require('./helpers');
@@ -21,12 +21,16 @@ test('each visit to / gets its own room', async ({ page }) => {
   expect(second).not.toBe(first);
 });
 
-test('two people in a room see each other\'s edits, and the text is saved', async ({ browser }) => {
+test('HTTP autosave persists edits for a later visit without WebSockets', async ({ browser }) => {
   const alice = await (await browser.newContext()).newPage();
   const bob = await (await browser.newContext()).newPage();
+  const sockets = [];
+  alice.on('websocket', socket => sockets.push(socket.url()));
   const url = await openRoom(alice);
   await alice.click('#monacoContainer');
   await alice.keyboard.type('hello from alice');
+  await waitLive(alice);
+  await expect.poll(() => storedText(alice)).toBe('hello from alice');
 
   await bob.goto(url);
   await waitLive(bob);
@@ -34,13 +38,15 @@ test('two people in a room see each other\'s edits, and the text is saved', asyn
   await bob.click('#monacoContainer');
   await bob.keyboard.press('ControlOrMeta+End');
   await bob.keyboard.type(' and bob');
-
-  await expect.poll(() => getCode(alice)).toBe('hello from alice and bob');
-  // Each sees two avatars, with their own outlined.
-  await expect(alice.locator('#collabAvatars .pb-avatar')).toHaveCount(2);
-  await expect(alice.locator('#collabAvatars .pb-avatar--self')).toHaveCount(1);
-  await waitLive(alice);
+  await waitLive(bob);
   await expect.poll(() => storedText(alice), { timeout: 15_000 }).toBe('hello from alice and bob');
+  // Reload is intentional: concurrent live synchronization is not supported.
+  expect(await getCode(alice)).toBe('hello from alice');
+  await alice.reload();
+  await waitLive(alice);
+  expect(await getCode(alice)).toBe('hello from alice and bob');
+  expect(sockets).toEqual([]);
+  await expect(alice.locator('#collabAvatars')).toHaveCount(0);
 
   // Opening the link later joins the same room with the saved text.
   const later = await (await browser.newContext()).newPage();
@@ -49,7 +55,7 @@ test('two people in a room see each other\'s edits, and the text is saved', asyn
   expect(await getCode(later)).toBe('hello from alice and bob');
 });
 
-test('language picker lists runnable languages first, filters, and syncs the choice', async ({ browser }) => {
+test('language picker lists runnable languages first, filters, and persists the choice', async ({ browser }) => {
   const page = await (await browser.newContext()).newPage();
   const other = await (await browser.newContext()).newPage();
   const url = await openRoom(page);
@@ -77,6 +83,9 @@ test('language picker lists runnable languages first, filters, and syncs the cho
   await page.keyboard.type('pyth');
   await page.keyboard.press('Enter');
   await expect(page.locator('#languageSelectButton')).toHaveText('▶ python');
+  await waitLive(page);
+  await other.reload();
+  await waitLive(other);
   await expect(other.locator('#languageSelectButton')).toHaveText('▶ python');
 
   // The choice is saved with the room.
@@ -106,7 +115,7 @@ test('Cmd/Ctrl+Enter runs the code', async ({ page }) => {
   await expect(page.locator('#output')).toContainText('42', { timeout: 120_000 });
 });
 
-test('Auto Run re-runs on changes, including another person\'s', async ({ browser }) => {
+test('Auto Run re-runs local changes and is remembered only in that browser', async ({ browser }) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   await openRoom(page, 'javascript');
@@ -127,7 +136,9 @@ test('Auto Run re-runs on changes, including another person\'s', async ({ browse
   // The setting is per browser: the friend's is off.
   await expect(friend.locator('#autoRunCheckbox')).not.toBeChecked();
   await setCode(friend, 'console.log(7 * 11)');
-  await expect(page.locator('#output')).toContainText('77', { timeout: 120_000 });
+  await waitLive(friend);
+  // Another tab's HTTP save does not claim live collaboration.
+  await expect(page.locator('#output')).toContainText('101');
 
   // ...and remembered in this browser.
   const again = await context.newPage();

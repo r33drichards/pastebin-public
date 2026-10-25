@@ -1,19 +1,20 @@
 const { expect } = require('@playwright/test');
 
-// Opens a fresh room (optionally in a language) and waits until it is live.
+// Historical helper name retained for runner specs: this is a single-user paste,
+// not a WebSocket room. Relative navigation also supports a mounted fixture.
 async function openRoom(page, lang) {
-  await page.goto(lang ? `/?lang=${encodeURIComponent(lang)}` : '/');
+  await page.goto(lang ? `./?lang=${encodeURIComponent(lang)}` : './');
   await waitLive(page);
   return page.url();
 }
 
-// Waits until the room is connected and everything is saved.
+// Waits until the WordPress HTTP autosave editor is ready and fully saved.
 async function waitLive(page) {
-  await expect(page.locator('#collabStatus')).toHaveAttribute('data-status', 'saved', { timeout: 30_000 });
+  await expect(page.locator('#saveStatus')).toHaveAttribute('data-status', 'saved', { timeout: 30_000 });
 }
 
 // Replaces the document through the editor, as a user edit: it is sent to
-// the room and saved like typing would be.
+// single-user paste and saved like typing would be.
 async function setCode(page, code) {
   await page.evaluate((text) => {
     const model = window.monaco.editor.getModels()[0];

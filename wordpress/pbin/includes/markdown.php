@@ -1,8 +1,12 @@
 <?php
+namespace Pbin\Plugin;
+use RuntimeException;
+use DOMDocument;
+use PbinVendor;
 defined('ABSPATH') || exit;
-require_once PBIN_PLUGIN_DIR . '/vendor/Parsedown.php';
-require_once PBIN_PLUGIN_DIR . '/vendor/ParsedownExtra.php';
-require_once PBIN_PLUGIN_DIR . '/vendor/Spyc.php';
+require_once Instance::current()->pluginDir . '/vendor/Parsedown.php';
+require_once Instance::current()->pluginDir . '/vendor/ParsedownExtra.php';
+require_once Instance::current()->pluginDir . '/vendor/Spyc.php';
 
 final class PBIN_Markdown {
     public static function render(string $markdown): string {
@@ -48,6 +52,6 @@ final class PBIN_Markdown {
         $allowed['del'] = [];
         $allowed['th']['align'] = true; $allowed['td']['align'] = true;
         $html = wp_kses($html, $allowed, ['http', 'https', 'mailto', 'ftp']);
-        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>' . pbin_html($title) . '</title><style>' . file_get_contents(PBIN_PLUGIN_DIR . '/static/css/markdown.css') . '</style></head><body class="markdown-body">' . $html . '</body></html>';
+        return '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>' . pbin_html($title) . '</title><style>' . file_get_contents(Instance::current()->pluginDir . '/static/css/markdown.css') . '</style></head><body class="markdown-body">' . $html . '</body></html>';
     }
 }
