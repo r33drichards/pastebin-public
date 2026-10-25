@@ -88,6 +88,27 @@ jobs:
           python3 wordpress/tools/package.py --verify .ci-artifacts/pbin.zip --sha256 "$digest" --revision "$PBIN_SOURCE_SHA" --extract-to "$RUNNER_TEMP/pbin-tested"
           printf '%s  pbin.zip\n' "$digest" > .ci-artifacts/SHA256SUMS
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          mkdir -p .ci-installer
+          python3 wordpress/tools/wordpress_installer.py build --canonical .ci-artifacts/pbin.zip --canonical-sha256 "$digest" --revision "$PBIN_SOURCE_SHA" --output .ci-installer/pbin-wordpress.zip --receipt .ci-installer/installer.json
+          python3 wordpress/tools/wordpress_installer.py build --canonical .ci-artifacts/pbin.zip --canonical-sha256 "$digest" --revision "$PBIN_SOURCE_SHA" --output "$RUNNER_TEMP/pbin-installer-repeat.zip" --receipt "$RUNNER_TEMP/pbin-installer-repeat.json"
+          cmp .ci-installer/pbin-wordpress.zip "$RUNNER_TEMP/pbin-installer-repeat.zip"
+          cmp .ci-installer/installer.json "$RUNNER_TEMP/pbin-installer-repeat.json"
+          (cd .ci-installer && sha256sum pbin-wordpress.zip installer.json > SHA256SUMS)
+      - name: Install standard ZIP through WordPress Plugin_Upgrader
+        env:
+          PBIN_WP_CORE_DIR: ${{ github.workspace }}/.ci-wordpress-core
+          PBIN_TEST_PLUGIN_DIR: ${{ runner.temp }}/pbin-tested/pbin
+          PBIN_TEST_DB_USER: root
+          PBIN_TEST_DB_PASSWORD: disposable-ci-only
+          PBIN_TEST_BASE_PATH: /paste
+          PBIN_TEST_EDITOR_AT_BASE: '1'
+          PBIN_INSTALLER_GATE: '1'
+          PBIN_INSTALLER_ZIP: ${{ github.workspace }}/.ci-installer/pbin-wordpress.zip
+          PBIN_INSTALLER_RECEIPT: ${{ github.workspace }}/.ci-installer/installer.json
+          PBIN_INSTALLER_CANONICAL: ${{ github.workspace }}/.ci-artifacts/pbin.zip
+          PBIN_INSTALLER_CANONICAL_SHA256: ${{ steps.package.outputs.digest }}
+          PBIN_TEST_RESULTS_DIR: ${{ github.workspace }}/.ci-results/wordpress-installer
+        run: bash wordpress/ci/run-fixture.sh node --test wordpress/ci/canonical-http-contract.test.mjs
       - name: Canonical /paste routing on a real WordPress site
         env:
           PBIN_WP_CORE_DIR: ${{ github.workspace }}/.ci-wordpress-core
@@ -118,7 +139,11 @@ jobs:
           PBIN_TEST_RESULTS_DIR: ${{ github.workspace }}/.ci-results/wordpress
         run: bash wordpress/ci/run-fixture.sh bash wordpress/ci/run-contracts.sh
       - name: Verify artifact did not change while tested
-        run: cd .ci-artifacts && sha256sum --check SHA256SUMS
+        run: |
+          (cd .ci-artifacts && sha256sum --check SHA256SUMS)
+          (cd .ci-installer && sha256sum --check SHA256SUMS)
+          digest="$(python3 -c 'import json; print(json.load(open(".ci-artifacts/build.json"))["artifact_sha256"])')"
+          python3 wordpress/tools/wordpress_installer.py verify --installer .ci-installer/pbin-wordpress.zip --receipt .ci-installer/installer.json --canonical .ci-artifacts/pbin.zip --canonical-sha256 "$digest" --revision "$PBIN_SOURCE_SHA"
       - name: Transfer tested artifact to gated artifact job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -126,6 +151,14 @@ jobs:
           # Only this generated package directory; never include the checkout.
           include-hidden-files: true
           path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 2
+      - name: Transfer tested WordPress installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tested-wordpress-installer-${{ env.PBIN_SOURCE_SHA }}
+          path: .ci-installer/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 2
       - name: Preserve failure and browser reports
@@ -148,6 +181,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: Check out exact installer verifier
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.PBIN_SOURCE_SHA }}
+          persist-credentials: false
       - name: Download this run's tested bytes only
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -167,11 +205,28 @@ jobs:
               manifest = json.loads(archive.read('manifest.json'))
           assert manifest['revision'] == os.environ['PBIN_SOURCE_SHA']
           PY
+      - name: Download this run's tested WordPress installer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tested-wordpress-installer-${{ env.PBIN_SOURCE_SHA }}
+          path: installer
+      - name: Verify transported WordPress installer
+        run: |
+          (cd installer && sha256sum --check SHA256SUMS)
+          digest="$(python3 -c 'import json; print(json.load(open("package/build.json"))["artifact_sha256"])')"
+          python3 wordpress/tools/wordpress_installer.py verify --installer installer/pbin-wordpress.zip --receipt installer/installer.json --canonical package/pbin.zip --canonical-sha256 "$digest" --revision "$PBIN_SOURCE_SHA"
       - name: Retain the exact tested package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pbin-wordpress-${{ env.PBIN_SOURCE_SHA }}
           path: package/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain exact tested WordPress installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pbin-wordpress-installer-${{ env.PBIN_SOURCE_SHA }}
+          path: installer/
           if-no-files-found: error
           retention-days: 14
 # No deploy job: a trusted control plane and verified Wasmer install/execute
