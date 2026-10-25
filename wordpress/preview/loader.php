@@ -50,7 +50,8 @@ try {
         $context['revision'], true, $context['request_base_path'], $context['data_dir']
     ));
 } catch (\Throwable $error) {
-    error_log('pbin preview unavailable: ' . $error->getMessage());
+    // Runtime exceptions may contain arbitrary branch/user text. Never log it.
+    error_log('pbin preview unavailable');
     http_response_code(404);
     header('Content-Type: text/plain; charset=utf-8');
     header('Cache-Control: no-store');

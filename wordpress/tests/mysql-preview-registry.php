@@ -1,6 +1,7 @@
 <?php
 /** Protocol tests with a recording wpdb double, NOT MySQL/locking proof. */
 require dirname(__DIR__) . '/preview/mysql-registry.php';
+require __DIR__ . '/mysql-race-observer.php';
 use Pbin\Preview\MysqlRegistry;
 use Pbin\Preview\RegistryException;
 use Pbin\Preview\RegistryConflict;
@@ -215,5 +216,23 @@ test('failed or replayed COMMIT is explicitly uncertain', function () {
     rejects(fn() => $registry->retire('pr-1', null), RegistryCommitUncertain::class);
     [$db, $registry] = fixture(); $db->reconnect = 'COMMIT';
     rejects(fn() => $registry->retire('pr-1', null), RegistryCommitUncertain::class);
+});
+test('race observer requires both exact live row-lock dependencies, not cached INNODB_TRX', function () {
+    $sql = Pbin\Preview\Tests\RaceObserver::query(new RecordingWpdb(), ['12', '13'], '11', 'wp_pbin_preview_registry');
+    expect(str_contains($sql, 'performance_schema.data_lock_waits') && str_contains($sql, 'performance_schema.threads') && str_contains($sql, 'performance_schema.data_locks'), 'Missing live dependency proof');
+    expect(str_contains($sql, "requested.LOCK_STATUS = 'WAITING'") && str_contains($sql, "requested.LOCK_TYPE = 'RECORD'") && str_contains($sql, 'blocking.PROCESSLIST_ID = 11'), 'Missing exact held-row constraints');
+    expect(!str_contains($sql, 'information_schema.INNODB_TRX'), 'Observer reintroduced stale last-read cache');
+    expect(Pbin\Preview\Tests\RaceObserver::allWaiting([['connection_id' => 13], ['connection_id' => '12']], ['12', '13']), 'Distinct exact writer proof rejected');
+    foreach ([[], [['connection_id' => 12]], [['connection_id' => 12], ['connection_id' => 12]], [['connection_id' => 12], ['connection_id' => 14]]] as $rows) {
+        expect(!Pbin\Preview\Tests\RaceObserver::allWaiting($rows, ['12', '13']), 'Incomplete/unrelated waiting set accepted');
+    }
+});
+test('race diagnostics never replay raw stdout, stderr, registry tokens or credentials', function () {
+    $secret = 'synthetic-secret-not-for-logs';
+    $raw = "arbitrary credential " . $secret . "\n" . json_encode(['outcome' => 'refused', 'type' => 'Pbin\\Preview\\RegistryException', 'record' => ['state_token' => $secret], 'message' => $secret]) . "\nWORKER_ERROR " . json_encode(['class' => 'Error', 'file' => 'fixture.php', 'line' => 42, 'category' => 'missing_function', 'message' => $secret]);
+    $raw .= "\n" . json_encode(array_fill_keys(['class', 'type', 'file', 'outcome', 'reason', 'category'], $secret));
+    $summary = json_encode(Pbin\Preview\Tests\RaceObserver::output($raw));
+    expect(!str_contains($summary, $secret) && !str_contains($summary, 'state_token'), 'Diagnostics exposed arbitrary runtime data');
+    expect(str_contains($summary, 'missing_function') && str_contains($summary, 'fixture.php') && str_contains($summary, 'refused'), 'Safe failure context missing');
 });
 echo "PASS: $count wpdb-double protocol groups; no real MySQL/locking claim\n";

@@ -1,5 +1,18 @@
 <?php
 /** Real WordPress wpdb/MySQL gate; run only through check-mysql-preview-registry.sh. */
+require __DIR__ . '/mysql-race-observer.php';
+use Pbin\Preview\Tests\RaceObserver;
+if (($argv[1] ?? '') === 'worker') {
+    set_exception_handler(static function (Throwable $error): void {
+        fwrite(STDERR, 'WORKER_ERROR ' . json_encode(RaceObserver::error($error), JSON_THROW_ON_ERROR) . "\n"); exit(1);
+    });
+    register_shutdown_function(static function (): void {
+        $error = error_get_last();
+        if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            fwrite(STDERR, 'WORKER_ERROR ' . json_encode(['class' => 'PHPFatal', 'file' => basename($error['file']), 'line' => $error['line'], 'category' => RaceObserver::category($error['message'])], JSON_THROW_ON_ERROR) . "\n");
+        }
+    });
+}
 function verify(bool $ok, string $message): void { if (!$ok) { throw new RuntimeException($message); } }
 $pbinRegistryFixture = getenv('PBIN_WP_FIXTURE') ?: '';
 $pbinRegistryLoad = getenv('PBIN_WORDPRESS_LOAD') ?: '';
@@ -57,7 +70,7 @@ if ($pbinRegistryMode === 'worker') {
             : $registry->compareAndSwap($request['tenant'], $request['token'], $request['desired']);
         echo json_encode(['outcome' => 'committed', 'record' => $record], JSON_THROW_ON_ERROR) . "\n";
     } catch (RegistryConflict $error) { echo "{\"outcome\":\"conflict\"}\n"; }
-    catch (RegistryException $error) { echo json_encode(['outcome' => $error->getMessage() === 'Enabled tenant bound exceeded' ? 'quota' : 'refused', 'type' => get_class($error)], JSON_THROW_ON_ERROR) . "\n"; }
+    catch (RegistryException $error) { echo json_encode(['outcome' => $error->getMessage() === 'Enabled tenant bound exceeded' ? 'quota' : 'refused', 'type' => get_class($error), 'reason' => RaceObserver::category($error->getMessage())], JSON_THROW_ON_ERROR) . "\n"; }
     exit;
 }
 verify($pbinRegistryMode === 'run', 'Unknown integration mode');
@@ -84,8 +97,12 @@ function race(array $requests): array {
     global $wpdb, $table;
     // Hold the actual database row while independent PHP/wpdb connections start.
     // This forces both contenders to contend on the same InnoDB lock.
+    $blocker = (string) $wpdb->get_var('SELECT CONNECTION_ID()');
     sql('START TRANSACTION'); sql("SELECT singleton_id FROM `$table` WHERE singleton_id = 1 FOR UPDATE");
-    $children = [];
+    verify((string) $wpdb->get_var('SELECT CONNECTION_ID()') === $blocker, 'Fixture blocker connection changed');
+    $observer = new wpdb(DB_USER, DB_PASSWORD, DB_NAME, DB_HOST);
+    $observer->suppress_errors(true);
+    $children = []; $observed = []; $captured = [];
     try {
         foreach ($requests as $request) {
             $process = proc_open([PHP_BINARY, __FILE__, 'worker', json_encode($request, JSON_THROW_ON_ERROR)], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -94,30 +111,56 @@ function race(array $requests): array {
             $children[] = [$process, $pipes];
         }
         $connections = [];
-        foreach ($children as [$process, $pipes]) {
+        foreach ($children as $index => [$process, $pipes]) {
             $ready = fgets($pipes[1]);
+            $captured[$index][1] = is_string($ready) ? $ready : '';
             verify(is_string($ready) && preg_match('/\AREADY:([1-9][0-9]*)\n\z/', $ready, $matches) === 1, 'Concurrent worker failed before lock contention');
             $connections[] = $matches[1];
         }
-        $waiting = 0; $deadline = microtime(true) + 15;
+        $waitQuery = RaceObserver::query($observer, $connections, $blocker, $table);
+        $deadline = microtime(true) + 15;
         do {
-            $waiting = (int) $wpdb->get_var("SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT' AND trx_mysql_thread_id IN (" . implode(',', $connections) . ')');
-            verify($wpdb->last_error === '', 'Cannot observe real InnoDB lock waiters; disposable CI account needs PROCESS');
-            if ($waiting === count($children)) { break; }
-            usleep(20000);
+            $observed = $observer->get_results($waitQuery, ARRAY_A);
+            verify(is_array($observed) && $observer->last_error === '', 'Cannot observe live MySQL row-lock dependencies');
+            if (RaceObserver::allWaiting($observed, $connections)) { break; }
+            foreach ($children as [$process, $pipes]) {
+                verify(proc_get_status($process)['running'], 'Concurrent writer exited before the lock barrier');
+            }
+            usleep(200000);
         } while (microtime(true) < $deadline);
-        verify($waiting === count($children), 'Both independent writers must demonstrably wait on the InnoDB lock');
+        verify(RaceObserver::allWaiting($observed, $connections), 'Both independent writers must demonstrably wait on the held registry row lock');
+        echo "PASS: live MySQL row-lock dependency proved for both independent writers\n";
         sql('COMMIT');
         $outcomes = [];
-        foreach ($children as [$process, $pipes]) {
+        foreach ($children as $index => [$process, $pipes]) {
             $output = stream_get_contents($pipes[1]); $error = stream_get_contents($pipes[2]);
+            $captured[$index][1] = ($captured[$index][1] ?? '') . $output;
+            $captured[$index][2] = $error;
             fclose($pipes[1]); fclose($pipes[2]); $status = proc_close($process);
             verify($status === 0 && $error === '', 'Concurrent PHP worker failed');
             $outcomes[] = json_decode(trim($output), true, 16, JSON_THROW_ON_ERROR);
         }
         return $outcomes;
+    } catch (Throwable $error) {
+        $diagnostics = ['observed_waiters' => is_array($observed) ? count($observed) : null, 'workers' => []];
+        foreach ($children as $index => [$process, $pipes]) {
+            $status = is_resource($process) ? proc_get_status($process) : [];
+            $report = ['running' => $status['running'] ?? false, 'exitcode' => $status['exitcode'] ?? null];
+            foreach ([1 => 'stdout', 2 => 'stderr'] as $descriptor => $name) {
+                $raw = $captured[$index][$descriptor] ?? '';
+                if (is_resource($pipes[$descriptor])) {
+                    stream_set_blocking($pipes[$descriptor], false);
+                    $raw .= stream_get_contents($pipes[$descriptor], 8192) ?: '';
+                }
+                $report[$name] = RaceObserver::output($raw);
+            }
+            $diagnostics['workers'][] = $report;
+        }
+        fwrite(STDERR, 'Sanitized registry race diagnostics: ' . json_encode($diagnostics, JSON_THROW_ON_ERROR) . "\n");
+        throw $error;
     } finally {
         $wpdb->query('ROLLBACK');
+        $observer->close();
         foreach ($children as [$process, $pipes]) {
             foreach ($pipes as $pipe) { if (is_resource($pipe)) { fclose($pipe); } }
             if (is_resource($process)) { proc_terminate($process); proc_close($process); }

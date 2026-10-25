@@ -25,14 +25,21 @@ export PBIN_WORDPRESS_LOAD="$WORK/site/wp-load.php"
 export PBIN_RATE_LIMIT=1000 PBIN_COMPLETION_RATE_LIMIT=1000
 unset HF_TOKEN COMPLETION_FALLBACK_URL COMPLETION_FALLBACK_TOKEN OPENAPIKEY
 SERVER_PID='' DB_CREATED=0
+# BEGIN bounded fixture diagnostics (also exercised without a server by unit tests)
+fixture_failure_logs() {
+    if [[ "${PBIN_CONTROLLER_GATE:-}" == 1 ]]; then
+        echo 'Authenticated controller fixture failed; raw logs withheld'
+        return
+    fi
+    for log in install php wp-debug; do echo "--- $log ---"; tail -80 "$WORK/$log.log" 2>/dev/null || true; done
+}
+# END bounded fixture diagnostics
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
     if [[ -n "$SERVER_PID" ]]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
     if [[ "$DB_CREATED" == 1 ]]; then "$PHP" "$ROOT/wordpress/ci/database.php" drop || { echo 'Disposable DB cleanup failed'; status=1; }; fi
-    if [[ "$status" != 0 ]]; then
-        for log in install php wp-debug; do echo "--- $log ---"; tail -80 "$WORK/$log.log" 2>/dev/null || true; done
-    fi
+    if [[ "$status" != 0 ]]; then fixture_failure_logs; fi
     if [[ -n "${PBIN_TEST_RESULTS_DIR:-}" ]]; then
         mkdir -p "$PBIN_TEST_RESULTS_DIR"
         # Do not upload wp-config.php, database dumps, cookies, or arbitrary site files.
@@ -57,7 +64,7 @@ if [[ -n "${PBIN_TEST_ARTIFACT:-}" ]]; then
     python3 "$ROOT/wordpress/ci/prepare-previews.py"
 fi
 "$PHP" "$ROOT/wordpress/ci/install.php" >"$WORK/install.log" 2>&1
-grep -q '^PASS: real WordPress' "$WORK/install.log" || { cat "$WORK/install.log"; exit 1; }
+grep -q '^PASS: real WordPress' "$WORK/install.log" || { fixture_failure_logs; exit 1; }
 "$PHP" -d post_max_size=16M -d memory_limit=256M -S "127.0.0.1:$PORT" -t "$WORK/site" "$ROOT/wordpress/ci/router.php" >"$WORK/php.log" 2>&1 &
 SERVER_PID=$!
 ready=0

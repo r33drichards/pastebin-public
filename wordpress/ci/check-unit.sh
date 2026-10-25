@@ -23,4 +23,5 @@ python3 wordpress/tests/build-native-package-fixtures.py --output "$WORK/native-
 node wordpress/tests/preview-storage.cjs
 test -f wordpress/tests/test_preview_packages.py
 python3 -m unittest discover -s wordpress/tests -p 'test_preview_*.py'
+python3 -m unittest discover -s wordpress/tests -p 'test_controller_http_fixture.py'
 echo 'PASS: required syntax and unit gates (not an integration/browser result)'

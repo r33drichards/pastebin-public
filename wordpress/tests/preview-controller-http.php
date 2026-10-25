@@ -10,7 +10,7 @@ if ($mode === '') {
     $cases = ['anonymous' => 403, 'missing-nonce' => 403, 'bad-nonce' => 403, 'app-error' => 403,
         'wrong-principal' => 403, 'wrong-capability' => 403, 'wrong-method' => 405, 'unknown-route' => 404,
         'query-route' => 403, 'cookie-get' => 200, 'app-get' => 200, 'disabled-setup' => 200,
-        'loader-mysql' => 200, 'loader-mysql-unavailable' => 404, 'loader-bad-health-nonce' => 404];
+        'loader-mysql' => 200, 'loader-mysql-unavailable' => 404, 'loader-bad-health-nonce' => 404, 'loader-branch-error' => 404];
     foreach ($cases as $case => $expected) {
         $process = proc_open([PHP_BINARY, __FILE__, $case], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         check(is_resource($process), 'Cannot launch offline child'); fclose($pipes[0]);
@@ -18,6 +18,7 @@ if ($mode === '') {
         check(proc_close($process) === 0 && $errors === '', 'Offline child failed: ' . $case . ': ' . $errors);
         $result = json_decode($output, true, 8, JSON_THROW_ON_ERROR);
         check($result['status'] === $expected, 'Unexpected status for ' . $case . ': ' . $output);
+        check(!$result['leaked_runtime_error'], 'Loader disclosed arbitrary runtime exception text');
         if (str_starts_with($case, 'loader-')) {
             check($result['executed'] === ($case === 'loader-mysql'), 'Wrong branch execution for ' . $case);
         } elseif ($expected !== 200) {
@@ -25,7 +26,7 @@ if ($mode === '') {
         }
         echo "PASS: offline adapter/loader $case\n";
     }
-    echo "PASS: 15 offline adapter/loader cases; not actual WordPress authentication or hosted SQL\n";
+    echo "PASS: 16 offline adapter/loader cases; not actual WordPress authentication or hosted SQL\n";
     exit;
 }
 $work = sys_get_temp_dir() . '/pbin-http-double-' . bin2hex(random_bytes(8)); mkdir($work, 0700);
@@ -97,13 +98,14 @@ ini_set('error_log', $work . '/expected-errors.log');
 ob_start();
 register_shutdown_function(static function () use ($work): void {
     $body = ob_get_clean(); $status = http_response_code() ?: 200;
-    $result = ['status' => $status, 'db_reads' => $GLOBALS['db_reads'], 'executed' => $GLOBALS['executed'], 'body' => $body];
+    $result = ['status' => $status, 'db_reads' => $GLOBALS['db_reads'], 'executed' => $GLOBALS['executed'], 'body' => $body, 'leaked_runtime_error' => str_contains($body . (is_file($work . '/expected-errors.log') ? file_get_contents($work . '/expected-errors.log') : ''), 'synthetic-sensitive-runtime-marker')];
     removeTest($work); echo json_encode($result, JSON_THROW_ON_ERROR);
 });
 if (str_starts_with($mode, 'loader-')) {
     $sha = str_repeat('a', 40); $token = str_repeat('b', 64); $digest = str_repeat('c', 64);
     $root = $work . '/private/releases/pr-1/' . $sha; mkdir($work . '/private/releases/pr-1', 0700); mkdir($root, 0700); mkdir($root . '/pbin', 0700);
     file_put_contents($root . '/pbin/runtime.php', '<?php namespace Pbin\\Plugin; class Instance { public function __construct(...$args) {} } function bootstrap($instance) { $GLOBALS["executed"] = true; echo "BRANCH"; }');
+    if ($mode === 'loader-branch-error') { file_put_contents($root . '/pbin/runtime.php', '<?php throw new \\RuntimeException("synthetic-sensitive-runtime-marker");'); }
     $GLOBALS['registry_json'] = json_encode(['version' => 2, 'tenants' => ['pr-1' => ['state_token' => $token, 'enabled' => true, 'active' => $sha, 'releases' => [$sha => ['artifact_sha256' => $digest, 'manifest_sha256' => $digest]]]]], JSON_UNESCAPED_SLASHES);
     file_put_contents($work . '/private/registry.json', $GLOBALS['registry_json']); // Must NEVER be a MySQL error fallback.
     $GLOBALS['db_unavailable'] = $mode === 'loader-mysql-unavailable';

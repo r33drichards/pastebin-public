@@ -40,7 +40,8 @@ numeric workflow resource must independently report the exact path and active
 state. The suffix is never used as a checkout ref or an authorization source.
 
 Both the PR head and the recorded PR base must have exactly the reviewed baseline's
-workflow, packager, loader/selector, and complete test/fixture trees (`wordpress/ci`,
+workflow, packager, complete trusted control-plane tree (`wordpress/preview`),
+and complete test/fixture trees (`wordpress/ci`,
 `wordpress/tests`, `e2e`, `acceptance`). Tree SHA comparisons include additions,
 deletions and modes, not only existing filenames. Truncated API results fail closed.
 This is deliberately strict: legitimate changes to tests or the CI recipe require

@@ -131,6 +131,17 @@ class PolicyTest(unittest.TestCase):
         value = tree(); value["tree"].append({"path": "wordpress/pbin/runtime.php", "sha": A})
         self.policy.recipes(tree(), value)  # Application edits are the intended payload.
 
+    def test_complete_controller_tree_is_part_of_reviewed_recipe(self):
+        for path in ("wordpress/preview/mysql-registry.php", "wordpress/preview/control/rest.php",
+                     "wordpress/preview/control/native-package.php", "wordpress/preview/health.php"):
+            baseline = tree()
+            baseline["tree"].append({"path": path, "sha": B, "mode": "100644", "type": "blob"})
+            for change in (lambda t: t["tree"][-1].update(sha=A),
+                           lambda t: t["tree"][-1].update(mode="100755"),
+                           lambda t: t["tree"].pop()):
+                candidate = copy.deepcopy(baseline); change(candidate)
+                with self.assertRaises(client.Rejected): self.policy.recipes(baseline, candidate)
+
     def test_documented_workflow_path_suffix_is_not_a_new_workflow(self):
         for path in (client.CI_PATH, client.CI_PATH + "@main", client.CI_PATH + "@refs/pull/8/merge"):
             value = run(); value["path"] = path; self.policy.run_identity(value)
