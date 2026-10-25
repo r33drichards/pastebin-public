@@ -132,6 +132,14 @@ if ($pbinQuotaMode === 'bytes') {
     integrationCheck((int) $db->get_var("SELECT COUNT(*) FROM `{$prefix}diffs`") === $diffsBeforeFailure, 'Failed write was not rolled back');
     $store->AddDiff('subsequent', 'admission');
     integrationCheck($store->GetSnapshot($snapshot['ID'])['Text'] === 'immutable', 'Failed write affected retained snapshot');
+    $controlText = implode('', array_map('chr', range(0, 127))) . "é e\u{0301} 日本語 😀 '); DROP TABLE imaginary; -- %s";
+    $store->UpdatePaste($seed, $controlText, 'λ', '');
+    $store->UpdatePaste($seed, $controlText, 'λ', '');
+    integrationCheck($store->GetPaste($seed)['Text'] === $controlText && $store->GetPaste($seed)['Title'] === '', 'Real preview Unicode/control update transport changed bytes');
+    $controlDiff = $store->AddDiff($controlText, '');
+    integrationCheck($store->GetDiff($controlDiff)['OldText'] === $controlText && $store->GetDiff($controlDiff)['NewText'] === '', 'Real preview diff transport changed bytes');
+    $controlSnapshot = $store->AddSnapshot($seed, $controlText, $controlText, 'λ', '🚀');
+    integrationCheck($controlSnapshot['Name'] === $controlText && $controlSnapshot['Text'] === $controlText, 'Real preview snapshot transport changed bytes');
 } else {
     integrationCheck($documents === PreviewQuota::MAX_DOCUMENTS, 'Concurrent admission exceeded exact row cap');
     integrationReject(fn() => $store->AddPaste('', '', ''), PreviewQuotaExceeded::class);

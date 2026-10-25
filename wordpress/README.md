@@ -68,3 +68,12 @@ namespace/selector/asset/storage isolation, and deterministic package lifecycle.
 They are not substitutes for the real WordPress/MySQL and runner-browser gates.
 The current authoring sandbox cannot start server sockets, so those integration
 gates have not yet run here. See CI output and staging evidence before promotion.
+
+### Execution-origin release gate
+
+Plugin-rendered documents are denied to signed-in WordPress sessions and fail
+closed when authentication is unavailable. This is defense in depth, not a
+sandbox: a guest runtime can outlive a later login. Production requires the
+[execution-origin boundary and compatibility proof](../docs/wordpress-execution-boundary.md).
+Use a separate browser profile without a WordPress login for current staging
+runner checks; this testing precaution does not satisfy production isolation.

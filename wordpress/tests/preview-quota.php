@@ -37,6 +37,25 @@ testQuota('UTF-8 byte accounting across every text-bearing document field', func
     quotaCheck(count($db->rows[$prefix . 'pastes']) === 2 && count($db->rows[$prefix . 'diffs']) === 1 && count($db->rows[$prefix . 'snapshots']) === 1, 'Rejected insert leaked');
     quotaCheck($store->GetPaste($paste)['Text'] === '😀', 'Existing UTF-8 document lost');
 });
+testQuota('ASCII SQL transport preserves Unicode, controls, quotes and empty strings', function (): void {
+    [$db, $store] = freshQuota();
+    $text = implode('', array_map('chr', range(0, 128 - 1))) . "é e\u{0301} 日本語 😀 '); DROP TABLE imaginary; -- %s";
+    $id = $store->AddPaste($text, 'λ', 'title 🚀');
+    quotaCheck($store->GetPaste($id)['Text'] === $text, 'Insert transport changed bytes');
+    $changed = 'updated ' . $text;
+    $store->UpdatePaste($id, $changed, '日本語', '');
+    $store->UpdatePaste($id, $changed, '日本語', '');
+    quotaCheck($store->GetPaste($id)['Text'] === $changed && $store->GetPaste($id)['Title'] === '', 'Update transport changed bytes');
+    $diff = $store->AddDiff($text, '');
+    quotaCheck($store->GetDiff($diff)['OldText'] === $text && $store->GetDiff($diff)['NewText'] === '', 'Diff transport changed bytes');
+    $snapshot = $store->AddSnapshot($id, $text, $text, 'λ', '🚀');
+    quotaCheck($snapshot['Text'] === $text && $snapshot['Name'] === $text, 'Snapshot transport changed bytes');
+    foreach ($db->queries as $query) {
+        if (preg_match('/^(?:INSERT|UPDATE)/', $query)) {
+            quotaCheck(preg_match('/[^\x20-\x7e]/', $query) === 0, 'Raw Unicode/control text reached a mutation query');
+        }
+    }
+});
 testQuota('At-cap no-op, shrinking and subsequent reuse preserve data', function (): void {
     [$db, $store, $quota, $prefix] = freshQuota();
     $full = str_repeat('x', PreviewQuota::MAX_BYTES);

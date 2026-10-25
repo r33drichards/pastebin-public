@@ -58,8 +58,11 @@ final class PreviewQuota {
             $this->admit($usage, $bytes, 1);
             if ($parent !== null) { $this->record('pastes', $parent, $connection); }
             $columns = implode(',', array_keys($row));
-            $placeholders = implode(',', array_fill(0, count($row), '%s'));
-            $changed = $this->query($this->sql("INSERT INTO `{$this->prefix}{$table}` ($columns) SELECT $placeholders WHERE CONNECTION_ID() = %s", ...[...array_values($row), $connection]));
+            // wpdb's whole-query charset check treats mixed ASCII-ID/utf8mb4
+            // tables as ASCII. Encode values, not the schema or quota accounting.
+            $placeholders = implode(',', array_fill(0, count($row), 'CONVERT(UNHEX(%s) USING utf8mb4)'));
+            $values = array_map([self::class, 'utf8Hex'], array_values($row));
+            $changed = $this->query($this->sql("INSERT INTO `{$this->prefix}{$table}` ($columns) SELECT $placeholders WHERE CONNECTION_ID() = %s", ...[...$values, $connection]));
             if ($changed !== 1) { throw new RuntimeException('Preview insert lost its transaction'); }
             $this->verify($table, $row, $connection);
         });
@@ -72,7 +75,7 @@ final class PreviewQuota {
             $old = $this->record('pastes', $id, $connection);
             $oldBytes = $this->bytes('pastes', $old, false);
             $this->admit($usage, $bytes - $oldBytes, 0);
-            $changed = $this->query($this->sql("UPDATE `{$this->prefix}pastes` SET text = %s, language = %s, title = %s WHERE id = %s AND CONNECTION_ID() = %s", $row['text'], $row['language'], $row['title'], $id, $connection));
+            $changed = $this->query($this->sql("UPDATE `{$this->prefix}pastes` SET text = CONVERT(UNHEX(%s) USING utf8mb4), language = CONVERT(UNHEX(%s) USING utf8mb4), title = CONVERT(UNHEX(%s) USING utf8mb4) WHERE id = %s AND CONNECTION_ID() = %s", self::utf8Hex($row['text']), self::utf8Hex($row['language']), self::utf8Hex($row['title']), $id, $connection));
             // MySQL returns zero for no-op updates. The locked read proved existence.
             if ($changed > 1) { throw new RuntimeException('Unexpected preview update count'); }
             $this->verify('pastes', ['id' => $id] + $row, $connection);
@@ -93,6 +96,13 @@ final class PreviewQuota {
             }
             return $this->query($this->sql("UPDATE `$table` SET available_at = %f WHERE bucket = %s AND available_at <= %f AND CONNECTION_ID() = %s", $now + 1 / $rate, $bucket, $now, $connection)) === 1;
         });
+    }
+
+    private static function utf8Hex(string $value): string {
+        if (preg_match('//u', $value) !== 1) { throw new PreviewQuotaExceeded('Preview document must be valid UTF-8'); }
+        // ASCII-only parameters preserve quotes, controls (including NUL), empty
+        // strings and supplementary code points without disabling wpdb checks.
+        return bin2hex($value);
     }
 
     private function bytes(string $table, array $row, bool $validate = true): int {

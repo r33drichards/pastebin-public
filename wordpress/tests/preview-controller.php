@@ -4,6 +4,8 @@ require dirname(__DIR__) . '/preview/mysql-registry.php';
 require dirname(__DIR__) . '/preview/control/native-package.php';
 require dirname(__DIR__) . '/preview/control/rest.php';
 require dirname(__DIR__) . '/preview/health.php';
+require dirname(__DIR__) . '/preview/control/maintenance.php';
+use Pbin\Preview\Control\Maintenance;
 use Pbin\Preview\Control\Configuration;
 use Pbin\Preview\Control\Controller;
 use Pbin\Preview\Control\Endpoint;
@@ -30,6 +32,12 @@ class MemoryRegistry {
     public $beforeCas = null;
     public bool $uncertain = false;
     public bool $inventoryBlocked = false;
+    public function snapshot(): array { return ['version' => 2, 'tenants' => $this->records]; }
+    public function retainReleases(string $tenant, string $token, string $rollback): array {
+        $old = $this->tenant($tenant);
+        return $this->compareAndSwap($tenant, $token, ['enabled' => $old['enabled'], 'active' => $old['active'],
+            'releases' => array_intersect_key($old['releases'], array_flip([$old['active'], $rollback]))]);
+    }
     public function assertDataInventory(): void { if ($this->inventoryBlocked) { throw new \Pbin\Preview\RegistryException('Synthetic orphan table'); } }
     public function tenant(string $tenant): ?array { return $this->records[$tenant] ?? null; }
     public function compareAndSwap(string $tenant, ?string $token, array $desired): array {
@@ -262,5 +270,89 @@ test('health metadata is trusted, nonce-bound and confined to exact active healt
     check($headers === ['X-Pbin-Revision' => str_repeat('a', 40), 'Cache-Control' => 'no-store', 'X-Pbin-Health-Nonce' => $nonce], 'Incorrect health metadata');
     check(Health::headers('/previews/pr-1/paste', $context, 'pbin-health-nonce=' . $nonce) === [], 'Nonce reflected on unrelated route');
     foreach (['pbin-health-nonce=' . str_repeat('a', 65), 'pbin-health-nonce=' . str_repeat('A', 64), 'pbin-health-nonce=' . $nonce . '&pbin-health-nonce=' . $nonce, 'pbin-health-nonce[]=x', 'pbin-health-nonce=%61'] as $query) { denied(fn() => Health::headers('/previews/pr-1/health', $context, $query), RuntimeException::class); }
+});
+// Aging here is test-fixture construction, not a production recovery mechanism.
+function agedPlan($config, array $response): string {
+    $plan = $response['plan']; $plan['created_at'] -= Maintenance::GRACE_SECONDS + 1;
+    $json = json_encode($plan, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR); $id = hash('sha256', $json);
+    file_put_contents($config->storage->root . '/.retention-' . $id . '.json', $json);
+    return $id;
+}
+test('offline retention keeps active and rollback, respects grace, preserves data and other tenants', function ($work, $config, $registry, $controller) {
+    $a = install($controller); $b = install($controller, 'pr-1', 'b', $a['state_token']); $c = install($controller, 'pr-1', 'c', $b['state_token']);
+    $other = install($controller, 'pr-2');
+    file_put_contents($config->storage->root . '/data/pr-1/preserve.txt', 'user data');
+    $maintenance = new Maintenance($registry, $config->storage, PackageDouble::class);
+    denied(fn() => $maintenance->planRetention('pr-1', $c['state_token'], str_repeat('c', 40)));
+    $plan = $maintenance->planRetention('pr-1', $c['state_token'], str_repeat('b', 40));
+    denied(fn() => $maintenance->applyRetention($plan['plan_id']));
+    $result = $maintenance->applyRetention(agedPlan($config, $plan))['record'];
+    check($result['state_token'] !== $c['state_token'] && count((array) $result['releases']) === 2, 'Retention did not fence and retain two releases');
+    check(!file_exists($config->storage->root . '/releases/pr-1/' . str_repeat('a', 40)), 'Inactive code not removed');
+    check(file_get_contents($config->storage->root . '/data/pr-1/preserve.txt') === 'user data', 'User data changed');
+    check(Controller::envelope('pr-2', $registry->tenant('pr-2'))['record'] == $other, 'Other tenant changed');
+    install($controller, 'pr-1', 'd', $result['state_token']);
+});
+test('stale, tampered and uncertain retention never deletes referenced code', function ($work, $config, $registry, $controller) {
+    $a = install($controller); $b = install($controller, 'pr-1', 'b', $a['state_token']); $c = install($controller, 'pr-1', 'c', $b['state_token']);
+    $maintenance = new Maintenance($registry, $config->storage, PackageDouble::class);
+    $plan = $maintenance->planRetention('pr-1', $c['state_token'], str_repeat('b', 40)); $id = agedPlan($config, $plan);
+    $registry->uncertain = true;
+    denied(fn() => $maintenance->applyRetention($id), RegistryCommitUncertain::class);
+    check(is_dir($config->storage->root . '/releases/pr-1/' . str_repeat('a', 40)), 'Uncertain CAS deleted code');
+    check(is_dir($config->storage->root . '/.controller-lock'), 'Uncertain CAS released lock');
+    $observation = $maintenance->recoveryObservation();
+    denied(fn() => $maintenance->recoverLock($observation, false, true));
+    denied(fn() => $maintenance->recoverLock($observation, true, false));
+    $wrong = $observation; $wrong['registry_sha256'] = str_repeat('0', 64);
+    denied(fn() => $maintenance->recoverLock($wrong, true, true));
+    $maintenance->recoverLock($observation, true, true); $registry->uncertain = false;
+    $controller->retire('pr-1', $c['state_token']);
+    denied(fn() => $maintenance->applyRetention($id), RegistryConflict::class);
+    check(is_dir($config->storage->root . '/releases/pr-1/' . str_repeat('a', 40)), 'Stale CAS deleted code');
+    file_put_contents($config->storage->root . '/.retention-' . $id . '.json', '{}');
+    denied(fn() => $maintenance->applyRetention($id));
+});
+test('post-commit partial code cleanup resumes only exact approved inventory and token', function ($work, $config, $registry, $controller) {
+    $a = install($controller); $b = install($controller, 'pr-1', 'b', $a['state_token']); $c = install($controller, 'pr-1', 'c', $b['state_token']);
+    $maintenance = new Maintenance($registry, $config->storage, PackageDouble::class);
+    $plan = $maintenance->planRetention('pr-1', $c['state_token'], str_repeat('b', 40)); $id = agedPlan($config, $plan);
+    $kept = $registry->retainReleases('pr-1', $c['state_token'], str_repeat('b', 40));
+    $path = $config->storage->root . '/releases/pr-1/' . str_repeat('a', 40);
+    chmod($path, 0700); unlink($path . '/manifest.json'); // Crash after some code was removed.
+    denied(fn() => $maintenance->finishRetention($id, $c['state_token']), RegistryConflict::class);
+    file_put_contents($path . '/unknown', 'not approved');
+    denied(fn() => $maintenance->finishRetention($id, $kept['state_token'])); unlink($path . '/unknown');
+    $maintenance->finishRetention($id, $kept['state_token']);
+    check(!file_exists($path), 'Partial orphan not removed');
+    $maintenance->finishRetention($id, $kept['state_token']); // Explicit same observed-state completion is read-only.
+    denied(fn() => install($controller, 'pr-1', 'a', $kept['state_token']));
+    install($controller, 'pr-1', 'd', $kept['state_token']);
+});
+test('digest-addressed malformed retention plans cannot choose deletion paths', function ($work, $config, $registry, $controller) {
+    $a = install($controller); $b = install($controller, 'pr-1', 'b', $a['state_token']); $c = install($controller, 'pr-1', 'c', $b['state_token']);
+    $maintenance = new Maintenance($registry, $config->storage, PackageDouble::class);
+    $response = $maintenance->planRetention('pr-1', $c['state_token'], str_repeat('b', 40));
+    $kept = $registry->retainReleases('pr-1', $c['state_token'], str_repeat('b', 40));
+    foreach (['tenant', 'revision', 'inventory'] as $kind) {
+        $bad = $response; $sha = str_repeat('a', 40);
+        if ($kind === 'tenant') { $bad['plan']['tenant'] = '../../data/pr-1'; }
+        if ($kind === 'revision') { $bad['plan']['remove']['../../data'] = $bad['plan']['remove'][$sha]; unset($bad['plan']['remove'][$sha]); }
+        if ($kind === 'inventory') { $bad['plan']['remove'][$sha]['inventory']['pbin/../../data'] = ['kind' => 'directory']; }
+        $id = agedPlan($config, $bad);
+        denied(fn() => $maintenance->finishRetention($id, $kept['state_token']));
+    }
+    check(is_dir($config->storage->root . '/releases/pr-1/' . str_repeat('a', 40)), 'Malformed ledger removed code');
+});
+test('lock recovery refuses extra entries and changed state, never uses lock age', function ($work, $config, $registry) {
+    $maintenance = new Maintenance($registry, $config->storage, PackageDouble::class);
+    $lock = $config->storage->root . '/.controller-lock'; mkdir($lock, 0700);
+    $owner = 'owner-' . str_repeat('a', 32); touch($lock . '/' . $owner);
+    $observation = $maintenance->recoveryObservation();
+    $registry->retire('pr-1', null);
+    denied(fn() => $maintenance->recoverLock($observation, true, true));
+    touch($lock . '/unexpected'); denied(fn() => $maintenance->recoveryObservation()); unlink($lock . '/unexpected');
+    $maintenance->recoverLock($maintenance->recoveryObservation(), true, true);
+    check(!file_exists($lock), 'Lock not recovered');
 });
 echo "PASS: $count offline controller protocol groups; native ZIP, actual WP auth and MySQL hosting not claimed\n";

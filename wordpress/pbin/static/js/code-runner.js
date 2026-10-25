@@ -2351,7 +2351,8 @@ async function runReactCode(code, outputEl) {
     outputEl.innerHTML = '<div id="react-root" class="w-full h-full"></div>';
     const reactRoot = document.getElementById('react-root');
 
-    // Execute the transformed code in a safe context
+    // Execute in this page context, NOT a security sandbox. The deployment must
+    // isolate this runtime from privileged origins and cookies.
     // The code should either export a component or render directly
     try {
       // Create a function that has React and ReactDOM in scope

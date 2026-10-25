@@ -4,6 +4,12 @@
 name: Reconcile trusted WordPress previews
 
 on:
+  workflow_dispatch:
+    inputs:
+      pull_requests:
+        description: "Explicit PR numbers to recover, comma-separated (1–20; no spaces)"
+        required: true
+        type: string
   workflow_run:
     workflows: [WordPress checks and immutable artifact]
     types: [completed]
@@ -20,6 +26,8 @@ permissions:
 
 # Serialize each tenant across CI events and closed cleanup.
 # A late CI event for a closed trusted PR reconciles retirement, not promotion.
+# Explicit recovery may overlap event runs: authoritative CAS rejects conflicts,
+# without token refresh or mutation retry. Recovery never bypasses per-PR gates.
 # Do not cancel after a mutation: cancellation cannot safely undo that mutation.
 concurrency:
   group: trusted-pbin-staging-pr-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
@@ -32,7 +40,8 @@ jobs:
       vars.PBIN_PREVIEWS_ENABLED == 'true' &&
       vars.PBIN_CONTROL_SHA != '' &&
       ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
-       (github.event_name == 'pull_request_target' && github.event.action == 'closed'))
+       (github.event_name == 'pull_request_target' && github.event.action == 'closed') ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: staging-previews

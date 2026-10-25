@@ -7,7 +7,7 @@ namespace Pbin\Preview\Control;
 final class QuotaRecipe {
     private const FILES = [
         'includes/store.php' => 'a80b1614361ce8ac28cb1946d8ab1af226099ebf641d78e9a033c4ce10d0c804',
-        'includes/preview-quota.php' => '26dc324d46253e0895cda20ebcc462343d604745bc9669cf723fe620e12851f6',
+        'includes/preview-quota.php' => '68410cbbbb5166ba8d3c2e47bc827584c3310d4cf28dd11419ef126c0ed7fbcc',
     ];
     public static function verify(string $plugin): void {
         Storage::canonicalDirectory($plugin);

@@ -79,6 +79,19 @@ final class PBIN_HTTP {
         header('Content-Type: application/json'); echo pbin_json($data) . "\n";
     }
     private function template(string $name, array $data = []): void {
+        // Defense in depth, NOT an execution-origin sandbox: a guest page can
+        // outlive a later login in another tab. Never serve a runnable document
+        // to a currently authenticated WordPress session, and fail closed if
+        // WordPress authentication has not initialized. Guard every template so
+        // a new execution UI cannot accidentally bypass a route-name allowlist.
+        header('Cache-Control: private, no-store, max-age=0');
+        header('Vary: Cookie', false);
+        if (!function_exists('is_user_logged_in') || is_user_logged_in()) {
+            header("Content-Security-Policy: default-src 'none'; sandbox; frame-ancestors 'none'");
+            header('X-Content-Type-Options: nosniff');
+            $this->text('Pastebin documents are unavailable in a signed-in WordPress session. Use a separate browser profile with no WordPress login. This restriction is not a replacement for an isolated execution origin.', function_exists('is_user_logged_in') ? 403 : 503);
+            return;
+        }
         // The template name is selected by this controller, never by a request.
         require Instance::current()->pluginDir . '/templates/' . $name . '.php';
     }

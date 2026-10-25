@@ -459,6 +459,131 @@ class BundleTest(unittest.TestCase):
         with self.assertRaises(client.Rejected): worker.retire(8)
         self.assertEqual(worker.staging.mutations, [])
 
+    def recovery_worker(self, **kwargs):
+        worker = self.reconciler(**kwargs)
+        original = worker.github.collection
+        worker.github.candidates = [run()]
+        def collection(path, key):
+            if key == "workflow_runs":
+                self.assertEqual(path, "/actions/workflows/31/runs?event=pull_request&status=success&head_sha=" + A)
+                return worker.github.candidates
+            return original(path, key)
+        worker.github.collection = collection
+        return worker
+
+    def test_recovery_reuses_complete_promotion_and_retirement(self):
+        worker = self.recovery_worker()
+        self.assertEqual(worker.recover(8)["result"], "active")
+        self.assertEqual(worker.staging.mutations, [("install", T1)])
+        worker = self.recovery_worker(close=True)
+        self.assertEqual(worker.recover(8)["result"], "retired")
+        self.assertEqual(worker.staging.mutations, [("retire", T1, None)])
+
+    def test_recovery_no_run_and_stale_discovery_never_mutate(self):
+        worker = self.recovery_worker()
+        worker.github.candidates = []
+        self.assertEqual(worker.recover(8)["result"], "no_eligible_run")
+        self.assertEqual(worker.staging.mutations, [])
+        for no_run in (True, False):
+            worker = self.recovery_worker(head_change=True)
+            if no_run: worker.github.candidates = []
+            with self.assertRaises(client.Rejected): worker.recover(8)
+            self.assertEqual(worker.staging.mutations, [])
+
+    def test_recovery_rejects_untrusted_duplicate_or_other_pr_runs(self):
+        variants = []
+        for key in ("actor", "triggering_actor"):
+            value = run(); value[key] = dict(USER, id=99); variants.append([value])
+        value = run(); value["pull_requests"][0]["number"] = 9; variants.append([value])
+        value = run(); value["head_sha"] = B; variants.append([value])
+        variants.append([run(), run()])
+        for candidates in variants:
+            worker = self.recovery_worker(); worker.github.candidates = candidates
+            with self.assertRaises(client.Rejected): worker.recover(8)
+            self.assertEqual(worker.staging.mutations, [])
+
+    def test_recovery_selects_one_deterministic_run_without_fallback(self):
+        worker = self.recovery_worker()
+        worker.github.candidates = [dict(run(), id=21), dict(run(), id=29), run()]
+        with patch.object(worker, "promote", side_effect=client.Rejected("expired artifact")) as promote:
+            with self.assertRaises(client.Rejected): worker.recover(8)
+            promote.assert_called_once_with(29, expected_number=8, expected_revision=A)
+        self.assertEqual(worker.staging.mutations, [])
+
+    def test_recovery_conflict_stops_without_retry(self):
+        worker = self.recovery_worker(conflict=True)
+        with self.assertRaises(client.Conflict): worker.recover(8)
+        self.assertEqual(worker.staging.mutations, [("install", T1)])
+
+    def test_recovery_close_after_discovery_uses_live_retirement(self):
+        worker = self.recovery_worker()
+        original = worker.github.get
+        def get(path):
+            value = original(path)
+            if path.startswith("/pulls/") and worker.github.pr_reads > 1:
+                value["state"] = "closed"
+            return value
+        worker.github.get = get
+        self.assertEqual(worker.recover(8)["result"], "retired")
+        self.assertEqual(worker.staging.mutations, [("retire", T1, None)])
+
+    def test_recovery_candidate_refetch_cannot_change_pr(self):
+        worker = self.recovery_worker()
+        original = worker.github.get
+        def get(path):
+            value = original(path)
+            if path.startswith("/actions/runs/"):
+                value["pull_requests"][0]["number"] = 9
+            return value
+        worker.github.get = get
+        with self.assertRaises(client.Rejected): worker.recover(8)
+        self.assertEqual(worker.staging.mutations, [])
+
+
+class RecoveryDispatchTest(unittest.TestCase):
+    def test_bounded_explicit_input(self):
+        self.assertEqual(client.recovery_targets({"pull_requests": "8,9"}), [8, 9])
+        invalid = [None, {}, {"pull_requests": 8}, {"pull_requests": ""},
+                   {"pull_requests": "8", "run": "23"}]
+        invalid += [{"pull_requests": value} for value in
+                    ["0", "01", "-1", "8,8", "8, 9", "8,", "8/9", "8\n",
+                     "99999999999", ",".join(str(i) for i in range(1, 22))]]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(client.Rejected):
+                client.recovery_targets(value)
+
+    def test_dispatch_requires_authenticated_sender_and_both_run_actors(self):
+        control = {"repository": REPO, "head_repository": REPO,
+                   "actor": USER, "triggering_actor": USER,
+                   "path": client.CONTROL_PATH, "workflow_id": 91, "event": "workflow_dispatch"}
+        class GitHub:
+            def __init__(self, token): pass
+            def get(self, path):
+                if path == "/actions/runs/101": return control
+                if path == "/actions/workflows/91":
+                    return {"id": 91, "path": client.CONTROL_PATH, "state": "active"}
+                raise AssertionError(path)
+        event = {"repository": REPO, "sender": USER, "inputs": {"pull_requests": "8,9"}}
+        with tempfile.TemporaryDirectory() as work:
+            event_path = Path(work) / "event.json"
+            environment = {"PBIN_PREVIEWS_ENABLED": "true", "PBIN_REPOSITORY_ID": "11",
+                           "PBIN_OWNER_ID": "7", "PBIN_CI_WORKFLOW_ID": "31", "PBIN_CONTROL_SHA": C,
+                           "GITHUB_EVENT_PATH": str(event_path), "GITHUB_RUN_ID": "101",
+                           "GITHUB_EVENT_NAME": "workflow_dispatch", "GH_TOKEN": "fake",
+                           "PBIN_STAGING_USER": "fake", "PBIN_STAGING_APPLICATION_PASSWORD": "fake"}
+            for bad in (None, "sender", "actor", "triggering_actor"):
+                event["sender"] = USER; control["actor"] = USER; control["triggering_actor"] = USER
+                if bad == "sender": event[bad] = dict(USER, id=99)
+                elif bad: control[bad] = dict(USER, id=99)
+                event_path.write_text(json.dumps(event))
+                with patch.dict(client.os.environ, environment, clear=True), \
+                     patch.object(client.subprocess, "check_output", side_effect=[C, ""]), \
+                     patch.object(client, "GitHub", GitHub), \
+                     patch.object(client.Reconciler, "recover", return_value={"result": "retired"}) as recover, \
+                     patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+                    self.assertEqual(client.main(), 0 if bad is None else 1)
+                    self.assertEqual(recover.call_count, 2 if bad is None else 0)
+
 
 class TransportTest(unittest.TestCase):
     def test_staging_credentials_do_not_follow_redirect(self):

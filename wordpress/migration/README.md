@@ -252,9 +252,17 @@ Required hosted gates (execution results are still pending, not implied by YAML)
    Both step names must succeed in the trusted client's evidence. The complete
    migration source, dependency pins and fixtures are protected recipe inputs;
    a successful old workflow lacking these gates is not accepted.
-3. Extend the hosted gate with killed-client rollback, forced database
-   reconnect/COMMIT-response-loss and concurrent insertion races. Those failure
-   modes are covered by doubles locally, not yet proven on real MySQL.
+3. The same MySQL gate also launches bounded, independent CLI subprocesses in
+   that exact disposable loopback fixture. It SIGKILLs a writer after a real
+   uncommitted insert, proves rollback and lock release, observes an InnoDB
+   `LOCK WAIT` before releasing a competing same-ID writer, and verifies the
+   loser cannot overwrite the winner. It kills only the verified worker's own
+   database connection, then proves wpdb reconnection/replay refuses insertion
+   rather than autocommitting on the new connection. Test-only row cleanup is
+   limited to the exact synthetic winning ID; fixture fingerprints must match.
+   These are required hosted tests, not claims of passing until that exact head
+   succeeds. Genuine COMMIT-response-loss remains unproven: the local exception
+   double is not a network/protocol fault test, and cannot close that gate.
 4. Retain all existing canonical HTTP, database-tenancy, browser/runner, native
    ZIP verification and package-provenance requirements. Do not publish a real
    backup/export as a CI artifact. The migration module is not added to pbin.zip.

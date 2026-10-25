@@ -108,3 +108,5 @@ verify(proc_close($process) === 0 && $stderr === '', 'CLI dry run failed (inspec
 $cli = json_decode($stdout, true, 16, JSON_THROW_ON_ERROR); verify($cli['mode'] === 'dry-run' && $cli['rows']['identical'] === 5, 'CLI receipt incorrect');
 verify(fingerprints() === $after, 'CLI dry run mutated data');
 echo "PASS: real MySQL legacy import, exact Unicode/nanoseconds/IDs, snapshot history, interrupted rollback, conflict refusal, idempotence, CLI dry run and untouched WordPress data\n";
+
+require __DIR__ . '/mysql-faults.php';

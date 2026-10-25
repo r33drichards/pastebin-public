@@ -30,8 +30,11 @@ class PreviewQuotaFixtureDB {
     }
     private function begin(string $query): array {
         $this->last_error = '';
-        $this->queries[] = $query;
+        // Bound test-only diagnostics: cap-sized hex queries are over 16 MiB.
+        // The full query still reaches the charset assertion below.
+        $this->queries[] = strlen($query) > 65536 ? substr($query, 0, 4096) . ' /* bounded unit trace */' : $query;
         [$template, $args] = $this->prepared[$query] ?? [$query, []];
+        unset($this->prepared[$query]);
         if ($this->disconnect !== null && $this->matches($template, $this->disconnect)) {
             $this->disconnect = null;
             if ($this->saved !== null) { [$this->rows, $this->quotaRows] = $this->saved; $this->saved = null; }
@@ -98,6 +101,15 @@ class PreviewQuotaFixtureDB {
         if ($template === 'COMMIT') { $this->saved = null; return 0; }
         if ($template === 'ROLLBACK') { if ($this->saved !== null) { [$this->rows, $this->quotaRows] = $this->saved; } $this->saved = null; return 0; }
         $table = $this->table($template);
+        if (preg_match('/(?:pastes|diffs|snapshots)$/', $table) && preg_match('/^(?:INSERT|UPDATE)/', $template) && preg_match('/[^\x00-\x7f]/', $query)) {
+            $this->last_error = 'synthetic wpdb mixed-charset whole-query rejection'; return false;
+        }
+        // Model only the explicit transport expressions, not arbitrary SQL.
+        preg_match_all('/CONVERT\(UNHEX\(%s\) USING utf8mb4\)/', $template, $hexExpressions);
+        foreach ($hexExpressions[0] as $index => $_) {
+            if (!is_string($args[$index] ?? null) || (strlen($args[$index]) % 2 !== 0 || strspn($args[$index], '0123456789abcdef') !== strlen($args[$index]))) { throw new RuntimeException('Invalid synthetic hex parameter'); }
+            $args[$index] = hex2bin($args[$index]);
+        }
         if (str_starts_with($template, 'CREATE TABLE')) { $this->quotaExists = true; return 0; }
         if (str_contains($template, 'CONNECTION_ID() = %s') && (string) end($args) !== (string) $this->connection) { return 0; }
         if (str_contains($template, '(singleton_id, schema_version) SELECT 1,1')) { $this->quotaRows = [['singleton_id' => 1, 'schema_version' => 1]]; return 1; }

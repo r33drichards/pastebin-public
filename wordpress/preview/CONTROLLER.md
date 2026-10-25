@@ -117,27 +117,58 @@ of the first two does not admit a third distinct PR. See [data quotas](DATA-QUOT
 for the 16 MiB logical-text ceiling and physical-storage limitations. A fourth
 SHA for one tenant is blocked. Disabling a tenant does **not** reclaim
 its code, registry releases or data, so this is not complete unattended teardown
-or an unlimited ongoing PR lifecycle. Lock recovery is not implemented as an
-endpoint and there is no age-based purge.
+or an unlimited ongoing PR lifecycle. Lock recovery is deliberately not a network endpoint and there is no age-based purge.
+An explicit offline maintenance implementation is described below.
 
-A future separately authorized, code-only retention operation should:
+### Offline reviewed maintenance implementation
 
-1. Stop/serialize installation, establish that no instance still owns the lock,
-   and re-read authoritative state/token. Resolve uncertain commits before any
-   cleanup or lock removal. Never infer abandonment solely from lock age.
-2. Protect the active release and an explicitly selected, fully verified rollback
-   release. Establish a grace interval for immutable asset URLs used by open tabs.
-3. Under a new reviewed transaction/state transition, identify eligible inactive
-   code and orphan directories with exact expected hashes, bounded inventory and
-   no symlinks. Keep a reviewable deletion plan and recovery mechanism before
-   removal; obtain any required deletion approval. Existing registry APIs refuse
-   release removal, so this requires a separately reviewed schema/API extension,
-   not direct ad hoc SQL or deleting files still referenced by the current record.
-4. Preserve token fencing and every closed-tenant tombstone. Do not recycle an
-   absent token state. Never treat code retention permission as permission to
-   delete tenant tables, uploads, options or user data; data retention is separate.
-5. Verify default WordPress and other tenants are unchanged, then perform a fresh
-   health/rollback check. No such cleanup or permission is implemented here.
+`control/maintenance.php` now provides an **offline administrator API**, not a
+REST route, hook, automatic sweep or deployed operation. An operator must load it
+from the reviewed control revision with the existing trusted registry/storage.
+No principal, grant, credential, mount or scheduled operation is created.
+
+- `planRetention(tenant, expectedToken, rollbackSha)` verifies every retained
+  package, protects the active revision and a distinct explicit rollback revision,
+  and writes an immutable digest-addressed plan in the private root. It refuses
+  empty plans and unknown rollback targets. Review the exact plan ID and obtain
+  deletion approval before applying it.
+- `applyRetention(planId)` enforces a minimum 24-hour asset grace from plan
+  creation, re-verifies the plan hash, exact token, packages and retained targets,
+  then changes registry metadata under MySQL CAS before removing inactive code.
+  Each changed state rotates the token. Commit uncertainty retains the storage
+  lock and removes no code. Successful cleanup frees a release slot, enabling a
+  fourth version while preserving two verified versions. The plan stays as a durable, digest-addressed
+  audit record with the original file inventory and counts toward storage limits.
+  Previously removed SHAs cannot be reinstalled, even with different bytes; these
+  ledgers must never be pruned while serving the registry.
+- This never deletes a tenant's data directory, database tables/options/uploads,
+  tombstone or data reservation. The two data-bearing tenant bound is unchanged.
+  Approval for code retention is not data-retention approval. Finite root/record
+  limits remain admission failures rather than a reason to delete user data.
+- A crash after metadata commit may leave counted, unroutable partial/orphan code.
+  Do not replay the old mutation or invent a new token. Inspect the stored plan,
+  authoritative registry and filesystem. With specific recovery approval,
+  `finishRetention(planId, observedToken)` verifies the post-commit active/rollback
+  pair, absence of every removed reference, 24-hour grace and an exact subset of
+  the original hashed file inventory before completing removal. Extra/changed
+  files, unsafe links, stale tokens or a later revision fail closed. This operation
+  does not change the registry or infer authorization from elapsed time.
+- `recoveryObservation()` records the exact lock owner, lock inode/device and
+  authoritative registry digest. `recoverLock(observation, true, true)` requires
+  the operator to have stopped **all instances' writers** and resolved any
+  uncertain commit, then compares that observation again before removing only
+  the exact empty owner marker and lock directory. It never checks age, steals
+  a live lock or cleans partial releases. Extra entries, unsafe files or changed
+  state fail closed. The booleans are explicit operator attestations, not proof
+  that this process can detect another host's liveness. Keep management disabled
+  until post-recovery inventory/health checks pass.
+
+These methods are not callable through the preview-management credential/API.
+They require separately authorized local administration; production is outside
+this controller. Local doubles cover grace, exact-token races, uncertain commits,
+other-tenant/data preservation and recovery observations. The real MySQL gate
+also covers retention CAS and fourth-release admission. Native-host cleanup,
+crash recovery and persistent RWX acceptance are still required before use.
 
 ## Verification and required acceptance
 

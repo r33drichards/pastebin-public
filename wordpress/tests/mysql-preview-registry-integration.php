@@ -109,6 +109,17 @@ verify($tombstone['active'] === null && !$tombstone['enabled'], 'Missing absence
 refusal(fn() => $registry->compareAndSwap('pr-9999999999', null, releaseState('a')), RegistryConflict::class);
 echo "PASS: real MySQL round-trip, exact no-op, tombstones, retirement and ABA fencing\n";
 
+$third = $registry->compareAndSwap('pr-910010', $retired['state_token'], releaseState('c', $retired['releases']));
+refusal(fn() => $registry->retainReleases('pr-910010', $retired['state_token'], str_repeat('b', 40)), RegistryConflict::class);
+refusal(fn() => $registry->retainReleases('pr-910010', $third['state_token'], str_repeat('c', 40)));
+$kept = $registry->retainReleases('pr-910010', $third['state_token'], str_repeat('b', 40));
+verify($kept['active'] === str_repeat('c', 40) && count($kept['releases']) === 2 && !isset($kept['releases'][str_repeat('a', 40)])
+    && $kept['state_token'] !== $third['state_token'], 'Code retention did not preserve active/rollback and fence state');
+$fourth = $registry->compareAndSwap('pr-910010', $kept['state_token'], releaseState('d', $kept['releases']));
+$registry->retire('pr-910010', $fourth['state_token']);
+verify($registry->tenant('pr-9999999999') === $tombstone, 'Code retention changed tombstone');
+echo "PASS: real MySQL code-retention CAS, active/rollback protection, fourth-release admission and tombstone preservation\n";
+
 function race(array $requests): array {
     global $wpdb, $table;
     // Hold the actual database row while independent PHP/wpdb connections start.

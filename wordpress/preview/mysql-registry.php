@@ -96,10 +96,16 @@ final class MysqlRegistry {
         return $this->mutate($tenant, $expectedToken, null);
     }
 
-    private function mutate(string $tenant, ?string $expectedToken, ?array $desired): array {
+    /** Explicit code-retention transition; never releases a data reservation or tombstone. */
+    public function retainReleases(string $tenant, string $expectedToken, string $rollback): array {
+        $this->hex($rollback, 40);
+        return $this->mutate($tenant, $expectedToken, null, $rollback);
+    }
+
+    private function mutate(string $tenant, ?string $expectedToken, ?array $desired, ?string $rollback = null): array {
         $this->tenantName($tenant);
         if ($expectedToken !== null) { $this->hex($expectedToken, 64); }
-        return $this->quiet(function () use ($tenant, $expectedToken, $desired): array {
+        return $this->quiet(function () use ($tenant, $expectedToken, $desired, $rollback): array {
             $this->schema();
             $connection = $this->idleSession();
             $started = false;
@@ -114,14 +120,20 @@ final class MysqlRegistry {
                 if (($old['state_token'] ?? null) !== $expectedToken) {
                     throw new RegistryConflict('Tenant state changed; re-read before deciding whether to retry');
                 }
-                if ($desired === null) {
+                if ($rollback !== null) {
+                    if ($old === null || $old['active'] === $rollback || !isset($old['releases'][$rollback])) {
+                        throw new RegistryException('Retention requires a distinct retained rollback release');
+                    }
+                    $desired = ['enabled' => $old['enabled'], 'active' => $old['active'],
+                        'releases' => array_intersect_key($old['releases'], array_flip([$old['active'], $rollback]))];
+                } elseif ($desired === null) {
                     $desired = $old === null ? ['enabled' => false, 'active' => null, 'releases' => []]
                         : ['enabled' => false, 'active' => $old['active'], 'releases' => $old['releases']];
                 }
                 $this->keys($desired, ['enabled', 'active', 'releases']);
                 $candidate = $this->record(['state_token' => $old['state_token'] ?? str_repeat('0', 64)] + $desired);
                 foreach ($old['releases'] ?? [] as $sha => $release) {
-                    if (($candidate['releases'][$sha] ?? null) !== $release) {
+                    if (($candidate['releases'][$sha] ?? null) !== $release && !($rollback !== null && !isset($candidate['releases'][$sha]))) {
                         throw new RegistryException('Retained immutable releases cannot be removed or changed');
                     }
                 }

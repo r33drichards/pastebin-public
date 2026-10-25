@@ -184,9 +184,31 @@ GitHub concurrency groups may replace an older **pending** run, even with
 `cancel-in-progress: false`. The per-PR group avoids dropping another tenant's
 cleanup, and a late successful CI event for an already-closed trusted PR performs
 retirement instead of promotion. Each run reconciles current state rather than
-replaying old desired state. Events can still be missed during outages or disabled
-workflow periods; the client is not a periodic full-repository cleanup mechanism.
-Decide on a reviewed recovery sweep before relying on unattended lifecycle cleanup.
+replaying old desired state. Events can still be missed during outages or disabled workflow periods. A reviewed
+operator can use the proposed `workflow_dispatch` recovery with `pull_requests`
+set to 1–20 distinct canonical PR numbers, comma-separated without spaces. This
+is an explicit bounded recovery, **not** an automatic full-repository sweep.
+The same authenticated event sender, run actor, rerun actor, fixed repository,
+control workflow identity, reviewed checkout and enable flag are mandatory.
+
+For each listed PR, recovery re-reads its trusted identity and current state.
+Closed PRs use the same token-fenced retirement/tombstone path. Open PRs discover
+successful CI runs filtered by the exact head and CI workflow. An incomplete
+(over 100 results), duplicate or untrusted collection fails closed. The greatest
+run ID is the one deterministic candidate; the complete promotion path then
+re-fetches and verifies its PR/head, run, attempt, jobs, recipes, artifact and
+health. It does not fall back to another run on failed/expired artifacts. With no
+candidate, it rechecks the PR head and reports `no_eligible_run` without mutation.
+A PR closed during discovery is retired by the final live-state check; a changed
+open head is rejected rather than installed from the discovery snapshot.
+
+Results are flushed one per PR. Failure stops the remaining batch and leaves
+prior completed results intact; there is no batch rollback or automatic replay.
+Concurrent event runs remain protected by authoritative token CAS; recovery does
+not refresh tokens after conflict or uncertainty. An operator must inspect any
+partial result and current state before a separately chosen new recovery run.
+No data or code is deleted, no credentials are created, and this proposal does
+not enable a workflow or schedule.
 
 ## GitHub event identity review
 

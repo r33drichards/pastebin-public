@@ -93,6 +93,19 @@ def identifier(value):
     return value
 
 
+def recovery_targets(inputs):
+    """Small explicit operator scope, never repository-wide enumeration."""
+    require(isinstance(inputs, dict) and set(inputs) == {"pull_requests"},
+            "Recovery requires only explicit pull_requests input")
+    value = inputs["pull_requests"]
+    require(isinstance(value, str) and len(value) <= 219
+            and re.fullmatch(r"[1-9][0-9]{0,9}(?:,[1-9][0-9]{0,9}){0,19}", value),
+            "Recovery requires 1–20 comma-separated canonical PR numbers")
+    numbers = [int(number) for number in value.split(",")]
+    require(len(set(numbers)) == len(numbers), "Duplicate recovery PR number")
+    return numbers
+
+
 def sha(value):
     try:
         return package.checked_revision(value)
@@ -477,7 +490,7 @@ class Reconciler:
         require(revision is None or current == revision, "PR head changed before mutation")
         return current
 
-    def promote(self, run_id):
+    def promote(self, run_id, *, expected_number=None, expected_revision=None):
         policy, github = self.policy, self.github
         policy.repository(github.get(""))
         run = github.get("/actions/runs/" + str(identifier(run_id)))
@@ -485,6 +498,7 @@ class Reconciler:
         pulls = run.get("pull_requests", [])
         require(len(pulls) == 1, "Run must identify exactly one PR")
         number = identifier(pulls[0].get("number"))
+        require(expected_number is None or number == expected_number, "Recovery run changed PR association")
         policy.run_identity(run)
         policy.workflow(github.get("/actions/workflows/" + str(policy.ci_workflow_id)),
                         policy.ci_workflow_id, CI_PATH)
@@ -494,6 +508,7 @@ class Reconciler:
             policy.pr(current_pr, number, "closed")
             return self.retire(number)
         revision = policy.pr(current_pr, number, "open")
+        require(expected_revision is None or revision == expected_revision, "Recovery PR head changed")
         base = policy.run(run, number, revision)
         attempt = identifier(run.get("run_attempt"))
         jobs = github.collection("/actions/runs/" + str(run_id) + "/attempts/" + str(attempt) + "/jobs", "jobs")
@@ -538,6 +553,40 @@ class Reconciler:
             require(not retired.enabled and retired.token is not None and retired.token != installed.token,
                     "Failed first release retirement not confirmed")
         raise Rejected("Preview health failed; guarded rollback/retirement completed")
+
+    def recover(self, number):
+        """Recover one missed event through the same live eligibility gates.
+
+        A successful discovery is not permission to install: promote re-fetches
+        the run, PR, protected recipes, jobs and artifact before mutation.
+        """
+        identifier(number)
+        self.policy.repository(self.github.get(""))
+        current = self.github.get("/pulls/" + str(number))
+        state = current.get("state")
+        require(state in ("open", "closed"), "Unknown recovery PR state")
+        revision = self.policy.pr(current, number, state)
+        if state == "closed":
+            return self.retire(number)
+        self.policy.workflow(self.github.get("/actions/workflows/" + str(self.policy.ci_workflow_id)),
+                             self.policy.ci_workflow_id, CI_PATH)
+        runs = self.github.collection("/actions/workflows/" + str(self.policy.ci_workflow_id)
+                                     + "/runs?event=pull_request&status=success&head_sha=" + revision,
+                                     "workflow_runs")
+        # collection rejects pagination/truncation. Every filtered candidate
+        # must retain the full trusted identity and exact PR/head association.
+        identifiers = []
+        for run in runs:
+            self.policy.run(run, number, revision)
+            identifiers.append(identifier(run.get("id")))
+        require(len(set(identifiers)) == len(identifiers), "Duplicate recovery run")
+        if not identifiers:
+            # Re-read to avoid reporting a stale head as awaiting CI.
+            self.current(number, revision=revision)
+            return {"result": "no_eligible_run", "pr": number, "revision": revision}
+        # A single deterministic candidate, not fallback through stale/failed
+        # artifacts. Failure/uncertainty stops; never try another run or token.
+        return self.promote(max(identifiers), expected_number=number, expected_revision=revision)
 
     def retire(self, number):
         self.policy.repository(self.github.get(""))
@@ -588,6 +637,13 @@ def main():
         elif name == "pull_request_target":
             require(event.get("action") == "closed", "Privileged PR event is restricted to closed cleanup")
             result = reconciler.retire(identifier(event.get("pull_request", {}).get("number")))
+        elif name == "workflow_dispatch":
+            numbers = recovery_targets(event.get("inputs"))
+            # Flush each completed item so a later failure preserves an honest
+            # partial receipt. No batch rollback or automatic retry is implied.
+            for number in numbers:
+                print(json.dumps(reconciler.recover(number), sort_keys=True), flush=True)
+            return 0
         else:
             raise Rejected("Unsupported control trigger")
         print(json.dumps(result, sort_keys=True))

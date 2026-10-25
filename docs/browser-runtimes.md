@@ -207,7 +207,7 @@ The sandbox itself stays offline: like Deno, the module graph is resolved
 and fetched *before* execution — on the page, from those allowlisted hosts
 only, so a shared paste can't make a viewer's browser fetch arbitrary URLs —
 and mirrored into the program's virtual filesystem, where QuickJS executes
-it with no network access, same as any other run. Fetched modules are cached
+it with no network access in this plain QuickJS mode. Fetched modules are cached
 for the page's lifetime, so re-runs are offline. A small web-globals prelude
 (`static/js/qjs-web-globals.js`: `Blob`, `TextEncoder`/`TextDecoder`, `URL`,
 timers) is evaluated first, because CDN modules routinely reference those at

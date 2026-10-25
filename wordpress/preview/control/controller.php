@@ -79,6 +79,7 @@ final class Controller {
             $this->registry->assertDataInventory();
             $current = $this->current($tenant, $token);
             $oldRelease = $current['releases'][$revision] ?? null;
+            if ($oldRelease === null) { $this->storage->assertNotRemoved($tenant, $revision); }
             if ($oldRelease !== null && $oldRelease['artifact_sha256'] !== $digest) { throw new ControlException('Immutable release digest differs', 409); }
             if ($oldRelease === null && count($current['releases'] ?? []) >= 3) { throw new ControlException('Retained release bound exceeded', 507); }
             $this->storage->reserve(0, 1);

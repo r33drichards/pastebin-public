@@ -265,4 +265,19 @@ test('race diagnostics never replay raw stdout, stderr, registry tokens or crede
     expect(!str_contains($summary, $secret) && !str_contains($summary, 'state_token'), 'Diagnostics exposed arbitrary runtime data');
     expect(str_contains($summary, 'missing_function') && str_contains($summary, 'fixture.php') && str_contains($summary, 'refused'), 'Safe failure context missing');
 });
+test('code retention requires CAS and distinct rollback, preserves reservation and tombstone', function () {
+    [$db, $registry] = fixture();
+    $a = $registry->compareAndSwap('pr-1', null, desired());
+    $b = $registry->compareAndSwap('pr-1', $a['state_token'], desired('b', $a['releases']));
+    $c = $registry->compareAndSwap('pr-1', $b['state_token'], desired('c', $b['releases']));
+    rejects(fn() => $registry->retainReleases('pr-1', $a['state_token'], str_repeat('b', 40)), RegistryConflict::class);
+    rejects(fn() => $registry->retainReleases('pr-1', $c['state_token'], str_repeat('c', 40)));
+    rejects(fn() => $registry->retainReleases('pr-1', $c['state_token'], str_repeat('d', 40)));
+    $retained = $registry->retainReleases('pr-1', $c['state_token'], str_repeat('b', 40));
+    expect(count($retained['releases']) === 2 && !isset($retained['releases'][str_repeat('a', 40)]) && $retained['active'] === str_repeat('c', 40), 'Wrong retention state');
+    expect($retained['state_token'] !== $c['state_token'], 'Retention token not rotated');
+    $registry->compareAndSwap('pr-1', $retained['state_token'], desired('d', $retained['releases']));
+    $registry->compareAndSwap('pr-2', null, desired());
+    rejects(fn() => $registry->compareAndSwap('pr-3', null, desired()));
+});
 echo "PASS: $count wpdb-double protocol groups; no real MySQL/locking claim\n";

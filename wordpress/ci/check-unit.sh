@@ -7,6 +7,7 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/pbin-unit.XXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 while IFS= read -r -d '' file; do "$PHP" -l "$file" >/dev/null; done < <(find wordpress/pbin wordpress/preview wordpress/ci wordpress/tests -type f -name '*.php' -print0)
 "$PHP" wordpress/tests/routes.php
+for auth_mode in guest authenticated unavailable; do "$PHP" wordpress/tests/execution-document-policy.php "$auth_mode"; done
 "$PHP" wordpress/tests/helpers.php "$WORK/templates.json"
 node wordpress/tests/template-syntax.cjs "$WORK/templates.json"
 "$PHP" wordpress/tests/platform-compat.php
