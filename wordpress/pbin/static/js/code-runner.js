@@ -2660,7 +2660,7 @@ function getOtelModuleSource() {
 // ---- URL module imports (QuickJS runs) --------------------------------------
 // Deno-style https:// imports for JavaScript/TypeScript pastes:
 //
-//   import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
+//   import camelCase from 'https://esm.sh/camelcase@8.0.0';
 //
 // The sandbox itself stays offline — like Deno, the module graph is resolved
 // and fetched BEFORE execution, here on the page (allowlisted module CDNs
@@ -2800,6 +2800,44 @@ function fetchStaticText(path) {
     staticTextCache.set(path, promise);
   }
   return staticTextCache.get(path);
+}
+
+// Only this exact built-in specifier opts into the pinned same-origin Effect
+// graph. Arbitrary bare/relative imports do not become network requests; URL
+// imports retain their existing separate allowlist and resource limits.
+const BUNDLED_EFFECT_ID = 'pbin/effect@3.12.0';
+const BUNDLED_EFFECT_PATH = '/static/vendor/effect/3.12.0/modules.json';
+let bundledEffectModulesPromise = null;
+function getBundledEffectModules() {
+  if (bundledEffectModulesPromise === null) {
+    bundledEffectModulesPromise = fetchStaticText(BUNDLED_EFFECT_PATH).then((text) => {
+      if (text.length > URL_IMPORT_MAX_BYTES) throw new Error('bundled Effect graph exceeds size limit');
+      const bundle = JSON.parse(text);
+      if (bundle.format !== 'pbin-effect-vfs-1' || bundle.version !== '3.12.0' ||
+          bundle.entry !== '/' + BUNDLED_EFFECT_ID || !bundle.files ||
+          typeof bundle.files !== 'object' || Array.isArray(bundle.files)) {
+        throw new Error('invalid bundled Effect graph');
+      }
+      const entries = Object.entries(bundle.files);
+      if (!entries.length || entries.length > URL_IMPORT_MAX_MODULES ||
+          typeof bundle.files[bundle.entry] !== 'string') throw new Error('incomplete bundled Effect graph');
+      const files = Object.create(null);
+      for (const [path, source] of entries) {
+        if (typeof source !== 'string' || (path !== bundle.entry &&
+            (!/^\/pbin\/vendor\/effect\/3\.12\.0\/[A-Za-z0-9_./-]+\.js$/.test(path) ||
+             path.split('/').slice(1).some(part => !part || part === '..' || part === '.')))) {
+          throw new Error('invalid bundled Effect module path: ' + path);
+        }
+        files[path] = source;
+      }
+      return files;
+    }).catch((error) => {
+      bundledEffectModulesPromise = null;
+      staticTextCache.delete(BUNDLED_EFFECT_PATH);
+      throw error;
+    });
+  }
+  return bundledEffectModulesPromise;
 }
 
 // A JavaScript or TypeScript run under the debugger; dbg is the session
@@ -3216,6 +3254,11 @@ async function runCode(getValueFn, languageValue) {
       // timeout starts counting): the graph is mirrored into the filesystem
       // below and QuickJS then executes it entirely offline.
       let urlModules = null;
+      let bundledModules = null;
+      if (lang === 'javascript' && moduleSpecifiers(code).includes(BUNDLED_EFFECT_ID)) {
+        outputEl.innerHTML = '<div class="text-gray-600 flex items-center"><span class="spinner"></span>Loading bundled Effect...</div>';
+        bundledModules = await getBundledEffectModules();
+      }
       if (lang === 'javascript' && code.indexOf('https://') !== -1) {
         outputEl.innerHTML = '<div class="text-gray-600 flex items-center"><span class="spinner"></span>Fetching modules...</div>';
         urlModules = await collectUrlModules(code);
@@ -3278,8 +3321,11 @@ async function runCode(getValueFn, languageValue) {
       }
       // The mirrored URL-import graph, plus the wrapper main that loads the
       // web-globals prelude ahead of the program (see collectUrlModules).
-      if (urlModules) {
-        for (const [path, content] of Object.entries(urlModules)) {
+      if (urlModules || bundledModules) {
+        for (const path of Object.keys(bundledModules || {})) {
+          if (urlModules && path in urlModules) throw new Error('URL import conflicts with bundled Effect module: ' + path);
+        }
+        for (const [path, content] of Object.entries({ ...urlModules, ...bundledModules })) {
           runFS[path] = { path: path.slice(1), content, mode: 'string', timestamps };
         }
         runFS['/pbin-globals'] = {
@@ -3310,9 +3356,9 @@ async function runCode(getValueFn, languageValue) {
       // inside a worker whose own base URL is the CDN the host loads from,
       // which would misresolve the self-hosted quickjs path.
       const binaryURL = new URL(runnoRuntime.binaryURL, window.location.href).toString();
-      // With URL imports, the run starts from the wrapper main so the
+      // URL and bundled imports start from the wrapper main so the
       // web-globals prelude evaluates before any user import.
-      const runArgs = urlModules
+      const runArgs = (urlModules || bundledModules)
         ? runnoRuntime.args.map((a) => (a === '/program' ? '/pbin-main' : a))
         : runnoRuntime.args;
       const host = new WASIWorkerHost(binaryURL, {

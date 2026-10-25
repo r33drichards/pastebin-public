@@ -4,15 +4,12 @@
 // concurrency, since Effect carries the parent span on its fibers.
 //
 // Served at 'pbin/effect-tracing' in the run's virtual filesystem (next to
-// the URL-imported modules; see code-runner.js). Deliberately does NOT import
-// 'effect' itself: the paste brings its own copy by URL, and an Effect layer
+// the bundled or URL-imported modules; see code-runner.js). Does NOT import
+// 'effect' itself: the paste chooses a bundled or URL-imported copy, and a layer
 // built from a second copy of the library would not compose with it. The
 // paste hands its modules in instead:
 //
-//   import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
-//   import * as Tracer from 'https://esm.sh/effect@3.12.0/Tracer?target=es2022';
-//   import * as Layer from 'https://esm.sh/effect@3.12.0/Layer?target=es2022';
-//   import * as Cause from 'https://esm.sh/effect@3.12.0/Cause?target=es2022';
+//   import { Effect, Tracer, Layer, Cause } from 'pbin/effect@3.12.0';
 //   import { makeEffectTracing } from 'pbin/effect-tracing';
 //
 //   const TracingLive = makeEffectTracing({ Tracer, Layer, Cause });

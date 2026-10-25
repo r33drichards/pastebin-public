@@ -12,12 +12,17 @@ test('HTTP save failure is visible, protects navigation, and retries the latest 
   await page.click('#monacoContainer'); // User activation permits beforeunload dialog.
   await setCode(page, 'must not disappear');
   await expect(page.locator('#saveStatus')).toHaveAttribute('data-status', 'error');
+  const originalURL = page.url();
   const dialog = page.waitForEvent('dialog');
-  const navigation = page.reload().catch(() => null);
+  // A dismissed beforeunload cancels navigation, so waiting for reload's
+  // load event can never succeed. Playwright explicitly does not await page
+  // closure with runBeforeUnload: true, since the user may stay on the page.
+  await page.close({ runBeforeUnload: true });
   const prompt = await dialog;
   expect(prompt.type()).toBe('beforeunload');
   await prompt.dismiss();
-  await navigation;
+  expect(page.isClosed()).toBe(false);
+  expect(page.url()).toBe(originalURL);
   expect(await page.evaluate(() => window.getValue())).toBe('must not disappear');
   await setCode(page, 'latest text after failure');
   await expect(page.locator('#saveStatus')).toHaveAttribute('data-status', 'error');

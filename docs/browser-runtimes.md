@@ -186,7 +186,7 @@ Plain JavaScript/TypeScript runs support Deno-style `https://` imports from
 module CDNs — `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`:
 
 ```ts
-import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
+import camelCase from 'https://esm.sh/camelcase@8.0.0';
 ```
 
 The sandbox itself stays offline: like Deno, the module graph is resolved
@@ -201,16 +201,19 @@ module-evaluation time. Limits: statically visible imports only (a dynamic
 `import()` of a computed URL won't resolve), 600 modules / 32 MB per graph,
 plain runs only (the debugger reports URL imports as unsupported).
 
-The marquee use: **Effect with traced spans**. The runner serves a
+The marquee use: **Effect with traced spans**. Its starter imports the pinned
+`pbin/effect@3.12.0` module, shipped as an immutable same-origin VFS graph.
+No CDN build or npm install is needed to load Effect. The graph contains the
+untouched official npm ESM sources for the four supported namespaces and their
+transitive dependencies, with the MIT license and per-file provenance beside it.
+See `wordpress/tools/vendor-effect.py` to reproduce and verify the asset.
+This built-in is for plain runs, not the debugger. The runner also serves a
 `pbin/effect-tracing` module whose layer routes `Effect.withSpan` into the
 same span waterfall as the OTel shim — with correctly parented spans under
 concurrency, since Effect carries the parent on its fibers:
 
 ```ts
-import * as Effect from 'https://esm.sh/effect@3.12.0/Effect?target=es2022';
-import * as Tracer from 'https://esm.sh/effect@3.12.0/Tracer?target=es2022';
-import * as Layer from 'https://esm.sh/effect@3.12.0/Layer?target=es2022';
-import * as Cause from 'https://esm.sh/effect@3.12.0/Cause?target=es2022';
+import { Effect, Tracer, Layer, Cause } from 'pbin/effect@3.12.0';
 import { makeEffectTracing } from 'pbin/effect-tracing';
 
 const TracingLive = makeEffectTracing({ Tracer, Layer, Cause });

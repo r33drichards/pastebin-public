@@ -9,6 +9,7 @@ test('packaged assets retain MIME, isolation and no traversal', async () => {
   for (const [path, mime] of [
     ['/static/js/code-runner.js', /javascript/],
     ['/static/js/pyodide-worker.js', /javascript/],
+    ['/static/vendor/effect/3.12.0/modules.json', /application\/json/],
     ['/static/css/app.css', /text\/css/],
   ]) {
     const response = await request(path);
