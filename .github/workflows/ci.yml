@@ -18,6 +18,8 @@ concurrency:
 
 env:
   PBIN_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  # A skipped native ZIP test is not a passing hosted extraction gate.
+  PBIN_REQUIRE_NATIVE_ZIP: '1'
 
 jobs:
   test:
@@ -62,7 +64,7 @@ jobs:
       - name: Install system PHP extensions
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y php8.3-cli php8.3-mysql php8.3-mbstring php8.3-xml
+          sudo apt-get install --no-install-recommends -y php8.3-cli php8.3-mysql php8.3-mbstring php8.3-xml php8.3-zip
           php --version
           node --version
           python3 --version
@@ -86,16 +88,6 @@ jobs:
           python3 wordpress/tools/package.py --verify .ci-artifacts/pbin.zip --sha256 "$digest" --revision "$PBIN_SOURCE_SHA" --extract-to "$RUNNER_TEMP/pbin-tested"
           printf '%s  pbin.zip\n' "$digest" > .ci-artifacts/SHA256SUMS
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
-      - name: Real WordPress, MySQL and Chromium tests against the built package
-        env:
-          PBIN_WP_CORE_DIR: ${{ github.workspace }}/.ci-wordpress-core
-          PBIN_TEST_PLUGIN_DIR: ${{ runner.temp }}/pbin-tested/pbin
-          PBIN_TEST_ARTIFACT: ${{ github.workspace }}/.ci-artifacts/pbin.zip
-          PBIN_TEST_ARTIFACT_SHA256: ${{ steps.package.outputs.digest }}
-          PBIN_TEST_DB_USER: root
-          PBIN_TEST_DB_PASSWORD: disposable-ci-only
-          PBIN_TEST_RESULTS_DIR: ${{ github.workspace }}/.ci-results/wordpress
-        run: bash wordpress/ci/run-fixture.sh bash wordpress/ci/run-contracts.sh
       - name: Canonical /paste routing on a real WordPress site
         env:
           PBIN_WP_CORE_DIR: ${{ github.workspace }}/.ci-wordpress-core
@@ -106,6 +98,16 @@ jobs:
           PBIN_TEST_EDITOR_AT_BASE: '1'
           PBIN_TEST_RESULTS_DIR: ${{ github.workspace }}/.ci-results/wordpress-canonical
         run: bash wordpress/ci/run-fixture.sh node --test wordpress/ci/canonical-http-contract.test.mjs
+      - name: Real WordPress, MySQL and Chromium tests against the built package
+        env:
+          PBIN_WP_CORE_DIR: ${{ github.workspace }}/.ci-wordpress-core
+          PBIN_TEST_PLUGIN_DIR: ${{ runner.temp }}/pbin-tested/pbin
+          PBIN_TEST_ARTIFACT: ${{ github.workspace }}/.ci-artifacts/pbin.zip
+          PBIN_TEST_ARTIFACT_SHA256: ${{ steps.package.outputs.digest }}
+          PBIN_TEST_DB_USER: root
+          PBIN_TEST_DB_PASSWORD: disposable-ci-only
+          PBIN_TEST_RESULTS_DIR: ${{ github.workspace }}/.ci-results/wordpress
+        run: bash wordpress/ci/run-fixture.sh bash wordpress/ci/run-contracts.sh
       - name: Verify artifact did not change while tested
         run: cd .ci-artifacts && sha256sum --check SHA256SUMS
       - name: Transfer tested artifact to gated artifact job
