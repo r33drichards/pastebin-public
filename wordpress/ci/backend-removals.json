@@ -1,0 +1,657 @@
+{
+  "version": 1,
+  "repository": "r33drichards/pastebin-public",
+  "baseline_revision": "38c4267f73836178dc597be6bd7db92da607c5a7",
+  "verification": "Verified against the fresh public main snapshot, with old Git history, diagnostics and data excluded. Every removal candidate records its exact baseline Git blob.",
+  "preserve": [
+    "wordpress/pbin/static/** (all browser runtimes and language choices)",
+    "e2e/tests/runners.spec.js (all existing runnable-language tests)",
+    "examples/**",
+    "hello/hello.go (guest-language example, not an HTTP backend)",
+    "tools/gen-clojure-core-docs.js (writes generated data to stdout)"
+  ],
+  "entries": [
+    {
+      "path": ".brev/.gitignore",
+      "git_blob": "40598adb39a61d00445dea5f0478cb614759d806",
+      "size": 16,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": ".brev/setup.sh",
+      "git_blob": "078774be03196bd1bccb1d76e55d4e1d2e84c5e3",
+      "size": 2556,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": ".envrc",
+      "git_blob": "02d73d078fbabe83425f0fac89ca14d3a3d341fa",
+      "size": 50,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": ".gitpod.yml",
+      "git_blob": "2048cd7eba78aff5aa6b66af181720deb33b8c58",
+      "size": 554,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "Dockerfile",
+      "git_blob": "72ceb0670f206de11ff4c5ccaf752cc1ed3a9f69",
+      "size": 575,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "acceptance/browser-contract.cjs",
+      "git_blob": "4246179384b429f2360a6731850109400fd53e52",
+      "size": 2206,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "acceptance/websocket-contract.cjs",
+      "git_blob": "b75a0aeee34b5e062eb410593a1f757e9596a159",
+      "size": 3096,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "acceptance/websocket-http-contract.cjs",
+      "git_blob": "61a10ed7eac7fea2554b698b02826268be602f80",
+      "size": 3989,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "collab.go",
+      "git_blob": "cdcc3542e68142ca13fce1d991c35ba76bf5d55a",
+      "size": 13701,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "collab_ot.go",
+      "git_blob": "80b71c659e9849439d1b4f4a8faf9032d03a60dd",
+      "size": 5948,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "collab_test.go",
+      "git_blob": "0da95bddb6ef29a7d7e8f1143bf1ad9eca5c2664",
+      "size": 14564,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "complete.go",
+      "git_blob": "240839f154e1388164332b51c6035a479383e435",
+      "size": 8240,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "complete_test.go",
+      "git_blob": "d1e32267c544f5a401b23b079e842f6298477e0e",
+      "size": 5697,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "default.nix",
+      "git_blob": "9a7b7e5ed09326e77778a2b2d0ad7965d4e0b021",
+      "size": 420,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "flake.lock",
+      "git_blob": "96c0120243011aceeeb76d880abe4ef6d71ac4fe",
+      "size": 3384,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "flake.nix",
+      "git_blob": "e6b390c4a5267c99a774d058dec02eab1dcd914a",
+      "size": 1023,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "go.mod",
+      "git_blob": "9efdfa810067156814037dbc9f4319983267bc23",
+      "size": 1016,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "go.sum",
+      "git_blob": "b89e0f6ee592eef1c013328fb4becdd4f95dc717",
+      "size": 9549,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "gomod2nix.toml",
+      "git_blob": "1ff07471933c2eed0386cdc192eb4bd522afa82d",
+      "size": 2949,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "infrastructure.tf",
+      "git_blob": "69eaf2d97e05322273d2dd559192270612a4e3bc",
+      "size": 1624,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "main.go",
+      "git_blob": "2b962ef83c1e5cbd224f540685afdfeca3736f4b",
+      "size": 17729,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "race_off_test.go",
+      "git_blob": "95a47e443d60f616b742a62bc9995fa28b21734a",
+      "size": 209,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "race_on_test.go",
+      "git_blob": "760941ee08493d59c5f8843ec7ef0d82b2497f5b",
+      "size": 207,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "shell.nix",
+      "git_blob": "6ffb36067201a2aa978417e7b1d01f156c6c5183",
+      "size": 724,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "snapshot.go",
+      "git_blob": "f2d442d7d6df0025c780412f86cb214712300676",
+      "size": 5692,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "snapshot_test.go",
+      "git_blob": "d0c0225f55ce94e2c769a913fa2f571875fc6fb1",
+      "size": 7521,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "static/css/app.css",
+      "git_blob": "761306c4197b49e739d8b1ec423d4811139dcef3",
+      "size": 43248,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/css/app.css",
+      "replacement_git_blob": "761306c4197b49e739d8b1ec423d4811139dcef3"
+    },
+    {
+      "path": "static/favicon.svg",
+      "git_blob": "a2c0003e067180b4e3fed5eff89bca9fd90fa2c4",
+      "size": 642,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/favicon.svg",
+      "replacement_git_blob": "a2c0003e067180b4e3fed5eff89bca9fd90fa2c4"
+    },
+    {
+      "path": "static/js/clock.js",
+      "git_blob": "214400ff06fade170bc672c8365d50198a6ebb67",
+      "size": 9341,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/clock.js",
+      "replacement_git_blob": "214400ff06fade170bc672c8365d50198a6ebb67"
+    },
+    {
+      "path": "static/js/clojure-core-docs.js",
+      "git_blob": "cb86dc763d9a30d4215da868449d54c84d7c9910",
+      "size": 90412,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/clojure-core-docs.js",
+      "replacement_git_blob": "cb86dc763d9a30d4215da868449d54c84d7c9910"
+    },
+    {
+      "path": "static/js/clojure-lsp.js",
+      "git_blob": "1ebbb12c46558fc9229e689ec707686b1fefe02c",
+      "size": 25893,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/clojure-lsp.js",
+      "replacement_git_blob": "1ebbb12c46558fc9229e689ec707686b1fefe02c"
+    },
+    {
+      "path": "static/js/clojure-worker.js",
+      "git_blob": "8628db74ee2aa1430ea578f65a0dd0d0c4a8d082",
+      "size": 5556,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/clojure-worker.js",
+      "replacement_git_blob": "8628db74ee2aa1430ea578f65a0dd0d0c4a8d082"
+    },
+    {
+      "path": "static/js/code-runner.js",
+      "git_blob": "3f62c1890b835c7c8ec53b3b4d77e7df84632153",
+      "size": 129428,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/code-runner.js",
+      "replacement_git_blob": "3f62c1890b835c7c8ec53b3b4d77e7df84632153"
+    },
+    {
+      "path": "static/js/collab.js",
+      "git_blob": "4265b7ee2ff7a02d5304be5318ab739c9548dc8e",
+      "size": 24891,
+      "action": "remove",
+      "reason": "Inactive WebSocket/presence client; single-user WordPress uses HTTP autosave.",
+      "replacement": "wordpress/pbin/tools/single-user-editor.js"
+    },
+    {
+      "path": "static/js/command-palette.js",
+      "git_blob": "b4da3f6d501580f1bbd4fc817313c3dd34574a1b",
+      "size": 15890,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/command-palette.js",
+      "replacement_git_blob": "b4da3f6d501580f1bbd4fc817313c3dd34574a1b"
+    },
+    {
+      "path": "static/js/debug.js",
+      "git_blob": "35f9225c4fef8d4746a1a7d5c8ebdd46a536c14d",
+      "size": 45694,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/debug.js",
+      "replacement_git_blob": "35f9225c4fef8d4746a1a7d5c8ebdd46a536c14d"
+    },
+    {
+      "path": "static/js/effect-tracing.js",
+      "git_blob": "a9e97e2426304fc4f873298fda87ed4f6516a122",
+      "size": 3280,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/effect-tracing.js",
+      "replacement_git_blob": "a9e97e2426304fc4f873298fda87ed4f6516a122"
+    },
+    {
+      "path": "static/js/fim-completion.js",
+      "git_blob": "666e0e0b5d3fe2606c3d21254151604bd80e7e95",
+      "size": 4530,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/fim-completion.js",
+      "replacement_git_blob": "666e0e0b5d3fe2606c3d21254151604bd80e7e95"
+    },
+    {
+      "path": "static/js/hello-world.js",
+      "git_blob": "a881d8067db472548ba031efb69a94d5bec42ea5",
+      "size": 12099,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/hello-world.js",
+      "replacement_git_blob": "a881d8067db472548ba031efb69a94d5bec42ea5"
+    },
+    {
+      "path": "static/js/js-debug-worker.js",
+      "git_blob": "05f763791c051a8b7bb7c8166e47c925b232fde2",
+      "size": 33489,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/js-debug-worker.js",
+      "replacement_git_blob": "05f763791c051a8b7bb7c8166e47c925b232fde2"
+    },
+    {
+      "path": "static/js/lang-picker.js",
+      "git_blob": "f6f438201a29976e1fa7b58045097ce6e53dd06f",
+      "size": 9532,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/lang-picker.js",
+      "replacement_git_blob": "f6f438201a29976e1fa7b58045097ce6e53dd06f"
+    },
+    {
+      "path": "static/js/lsp-completions.js",
+      "git_blob": "06bcd9e6fe2e35662f69d244040f15ff3a8595e0",
+      "size": 21569,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/lsp-completions.js",
+      "replacement_git_blob": "06bcd9e6fe2e35662f69d244040f15ff3a8595e0"
+    },
+    {
+      "path": "static/js/otel-shim.js",
+      "git_blob": "408943e4a0172830150aeb786954193c686eb52c",
+      "size": 12010,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/otel-shim.js",
+      "replacement_git_blob": "408943e4a0172830150aeb786954193c686eb52c"
+    },
+    {
+      "path": "static/js/pyodide-worker.js",
+      "git_blob": "feedb486b11000f199cd6bc18b9b1e956b3eaf85",
+      "size": 25127,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/pyodide-worker.js",
+      "replacement_git_blob": "feedb486b11000f199cd6bc18b9b1e956b3eaf85"
+    },
+    {
+      "path": "static/js/pyright-lsp.js",
+      "git_blob": "aeaabd9cddd8c010ef096b78be7c55e7fee06fa2",
+      "size": 28001,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/pyright-lsp.js",
+      "replacement_git_blob": "aeaabd9cddd8c010ef096b78be7c55e7fee06fa2"
+    },
+    {
+      "path": "static/js/qjs-web-globals.js",
+      "git_blob": "ead2da7f55ee022469708b1393073b3fdb0d98d5",
+      "size": 4668,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/qjs-web-globals.js",
+      "replacement_git_blob": "ead2da7f55ee022469708b1393073b3fdb0d98d5"
+    },
+    {
+      "path": "static/js/theme.js",
+      "git_blob": "9363ceeb6f7870c0ceb125534f75d320bc57565e",
+      "size": 5594,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/theme.js",
+      "replacement_git_blob": "9363ceeb6f7870c0ceb125534f75d320bc57565e"
+    },
+    {
+      "path": "static/js/tla-worker.js",
+      "git_blob": "6e31c6b5d1a9fd50d8a77def8939ab18348d09bc",
+      "size": 1410,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/tla-worker.js",
+      "replacement_git_blob": "6e31c6b5d1a9fd50d8a77def8939ab18348d09bc"
+    },
+    {
+      "path": "static/js/trace-view.js",
+      "git_blob": "39ffd34a64d44b5bef17fdcee71a1e55add8dee8",
+      "size": 12449,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/js/trace-view.js",
+      "replacement_git_blob": "39ffd34a64d44b5bef17fdcee71a1e55add8dee8"
+    },
+    {
+      "path": "static/wasm/ocaml/BUILD.md",
+      "git_blob": "3288372d70cb8972789f694e3e78920971338af7",
+      "size": 1316,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/ocaml/BUILD.md",
+      "replacement_git_blob": "3288372d70cb8972789f694e3e78920971338af7"
+    },
+    {
+      "path": "static/wasm/ocaml/toplevel.js",
+      "git_blob": "b11f51fee54b24fb015dc03542a686031318e9ac",
+      "size": 7687555,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/ocaml/toplevel.js",
+      "replacement_git_blob": "b11f51fee54b24fb015dc03542a686031318e9ac"
+    },
+    {
+      "path": "static/wasm/ocaml/toplevel_main.ml",
+      "git_blob": "57601388760e8dc81af6de18dc743292db5ccfcc",
+      "size": 1240,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/ocaml/toplevel_main.ml",
+      "replacement_git_blob": "57601388760e8dc81af6de18dc743292db5ccfcc"
+    },
+    {
+      "path": "static/wasm/picat/picat.mjs",
+      "git_blob": "404852ce7fe06748b7599823f0b4171a06b9872e",
+      "size": 71495,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/picat/picat.mjs",
+      "replacement_git_blob": "404852ce7fe06748b7599823f0b4171a06b9872e"
+    },
+    {
+      "path": "static/wasm/picat/picat.wasm",
+      "git_blob": "1db8689a810ea2e526eec37d39a8ec97ebd42259",
+      "size": 4485902,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/picat/picat.wasm",
+      "replacement_git_blob": "1db8689a810ea2e526eec37d39a8ec97ebd42259"
+    },
+    {
+      "path": "static/wasm/quickjs/BUILD.md",
+      "git_blob": "cd6647ffda37ff60384e7b51d5ce6fd32c699166",
+      "size": 1491,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/quickjs/BUILD.md",
+      "replacement_git_blob": "cd6647ffda37ff60384e7b51d5ce6fd32c699166"
+    },
+    {
+      "path": "static/wasm/quickjs/qjs-wasi.wasm",
+      "git_blob": "77ab7f4d26a83ab2aba18c3ce84305b8881e1ad4",
+      "size": 1569050,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/quickjs/qjs-wasi.wasm",
+      "replacement_git_blob": "77ab7f4d26a83ab2aba18c3ce84305b8881e1ad4"
+    },
+    {
+      "path": "static/wasm/tla-checker/tla_checker.js",
+      "git_blob": "5b21f3b0e22595ff905bd40ac202b01ec8952fef",
+      "size": 10671,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/tla-checker/tla_checker.js",
+      "replacement_git_blob": "5b21f3b0e22595ff905bd40ac202b01ec8952fef"
+    },
+    {
+      "path": "static/wasm/tla-checker/tla_checker_bg.wasm",
+      "git_blob": "7c4c9202d80d3c96600a25d695422362a9edd4c6",
+      "size": 891406,
+      "action": "remove",
+      "reason": "Duplicate frontend asset: canonical WordPress copy has the exact same upstream Git blob.",
+      "replacement": "wordpress/pbin/static/wasm/tla-checker/tla_checker_bg.wasm",
+      "replacement_git_blob": "7c4c9202d80d3c96600a25d695422362a9edd4c6"
+    },
+    {
+      "path": "store.go",
+      "git_blob": "6cdc07917b954b13a15b39ee03f798a4fd61633b",
+      "size": 17513,
+      "action": "remove",
+      "reason": "Retired Go application server, deployment, or development-toolchain path."
+    },
+    {
+      "path": "templates/diff-share.html",
+      "git_blob": "060d08fb03f41508ab058c7144bf2ff2a7ac076c",
+      "size": 4265,
+      "action": "remove",
+      "reason": "Retired Go-template source; maintained WordPress PHP templates are authoritative.",
+      "replacement": "wordpress/pbin/templates/diff-share.php"
+    },
+    {
+      "path": "templates/diff.html",
+      "git_blob": "6b5c61cc9769bd8114e765b11434d8fb3131d730",
+      "size": 5058,
+      "action": "remove",
+      "reason": "Retired Go-template source; maintained WordPress PHP templates are authoritative.",
+      "replacement": "wordpress/pbin/templates/diff.php"
+    },
+    {
+      "path": "templates/paste.html",
+      "git_blob": "92b316932c046eec942d5de683d4e360ff66a305",
+      "size": 114331,
+      "action": "remove",
+      "reason": "Retired Go-template source; maintained WordPress PHP templates are authoritative.",
+      "replacement": "wordpress/pbin/templates/paste.php"
+    },
+    {
+      "path": "templates/snapshot.html",
+      "git_blob": "818aaef0d8c3da5a1d053532e7d47d12aa8643e8",
+      "size": 7914,
+      "action": "remove",
+      "reason": "Retired Go-template source; maintained WordPress PHP templates are authoritative.",
+      "replacement": "wordpress/pbin/templates/snapshot.php"
+    },
+    {
+      "path": "templates/snapshots.html",
+      "git_blob": "f01ae17cfc8b68566ea59fe5d28587cfa73582f0",
+      "size": 5989,
+      "action": "remove",
+      "reason": "Retired Go-template source; maintained WordPress PHP templates are authoritative.",
+      "replacement": "wordpress/pbin/templates/snapshots.php"
+    },
+    {
+      "path": "wordpress/companion/.gitignore",
+      "git_blob": "2cf67118890d846aff8fd43f130f6933ab29b2b1",
+      "size": 20,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/companion/README.md",
+      "git_blob": "1a8939cd49a30dca44a5926c085a84e065c1f803",
+      "size": 1372,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/companion/composer.json",
+      "git_blob": "a832ccaa56d52e772f4cff4d633d9af279fd8dc4",
+      "size": 65,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/companion/composer.lock",
+      "git_blob": "7ff529e00e8877c7ae3d93d05cce5c5911b0ce07",
+      "size": 4852,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/companion/server.php",
+      "git_blob": "58ad44fa285f87419d58b469d68be45e7e734159",
+      "size": 8155,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/pbin/includes/collab-store.php",
+      "git_blob": "507c8ba36b93a34542060dd0d2fb7c27bfba0a6e",
+      "size": 11928,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/pbin/includes/ot.php",
+      "git_blob": "2620e65d46afe1635f45af49328f80693325c969",
+      "size": 14707,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/pbin/tools/port_templates.py",
+      "git_blob": "dc2217543703c7467a24a758d2f74543e0e6e2ab",
+      "size": 5236,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/COLLAB-STORE.md",
+      "git_blob": "669cce7b92bd51a3cbbd64639da9f49c093410d6",
+      "size": 4743,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/collab-store.php",
+      "git_blob": "b3be71364fd902a2138dfe21ba8b788f02ea51a4",
+      "size": 10230,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/compare-ot.php",
+      "git_blob": "ee0545ea4485d0662f843333337a0b5d740c93ec",
+      "size": 777,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/ot-reference.go",
+      "git_blob": "d33cec87ee4b30ae5f05741169d8f1ee1fc1f85d",
+      "size": 1570,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/ot.php",
+      "git_blob": "ca050717a39eadbc23791bbc0097931898fded63",
+      "size": 7781,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/realtime-fixture.sh",
+      "git_blob": "71a401b9dd8a45b370598cb0d6fa93745d186fdf",
+      "size": 1101,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/run-collab-store-tests.sh",
+      "git_blob": "2d182d0940ed37636df30be336a993342d2b8461",
+      "size": 1409,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/run-http-acceptance.sh",
+      "git_blob": "abe72198310e9ea34476457ef134672bfe87fc50",
+      "size": 4632,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/run-ot-tests.sh",
+      "git_blob": "212d6b737b887c0ab136f14821838007bb3c204c",
+      "size": 675,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    },
+    {
+      "path": "wordpress/tests/run-realtime-acceptance.sh",
+      "git_blob": "ac3a0b494e10ce2b0fb8c14007a62d91ad88bc3b",
+      "size": 279,
+      "action": "remove",
+      "reason": "Historical realtime/Go parity prototype; unsupported and superseded by WordPress HTTP and tenant fixture gates."
+    }
+  ]
+}

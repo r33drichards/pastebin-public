@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Generates static/js/clojure-core-docs.js: docstrings and arglists for the
+// Generates wordpress/pbin/static/js/clojure-core-docs.js: docstrings and arglists for the
 // core library symbols the in-browser Clojure runtime (SCI via Scittle)
 // provides. Scittle's bundle strips :doc/:arglists metadata from core
 // *functions* to save size (macros keep theirs), so hovers, signature help
@@ -8,7 +8,7 @@
 // keeps only the symbols that actually resolve in Scittle's SCI context.
 //
 // Usage:
-//   node tools/gen-clojure-core-docs.js <src-dir> <scittle.js> > static/js/clojure-core-docs.js
+//   node tools/gen-clojure-core-docs.js <src-dir> <scittle.js> > wordpress/pbin/static/js/clojure-core-docs.js
 //
 // where <src-dir> holds these files from clojure/clojurescript (r1.11.132):
 //   core.cljs         src/main/cljs/cljs/core.cljs

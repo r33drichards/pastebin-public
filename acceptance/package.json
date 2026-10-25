@@ -1,0 +1,7 @@
+{
+  "name": "pbin-independent-acceptance",
+  "private": true,
+  "scripts": {
+    "http": "node --test http-contract.test.mjs"
+  }
+}

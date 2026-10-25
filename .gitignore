@@ -1,13 +1,13 @@
 .env
-pbin
-/gomod2nix-template
-result 
-.direnv
-pbin.db
-*~*~* 
-
 .DS_Store
-# end-to-end tests
+*~*~
+__pycache__/
+*.pyc
 e2e/node_modules/
 e2e/test-results/
 e2e/playwright-report/
+acceptance/node_modules/
+.ci-wordpress-core/
+.ci-artifacts/
+.ci-results/
+pbin.zip
