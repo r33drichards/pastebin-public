@@ -1,0 +1,50 @@
+:root {
+				--bg: #EAF2FA; --fg: #0F2238; --muted: #4E647C;
+				--edge: rgba(0, 50, 219, 0.18); --sky: #0053C9; --leaf: #4E7F12;
+				color-scheme: light dark;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #090D18; --fg: #E4EEF8; --muted: #7C90A8;
+					--edge: rgba(6, 137, 228, 0.3); --sky: #4DA6EE; --leaf: #9BCE5A;
+				}
+			}
+			* { box-sizing: border-box; }
+			::selection { background: #0689e4; color: #fff; }
+			body {
+				margin: 0 auto; padding: 48px 16px; max-width: 72ch;
+				color: var(--fg);
+				background:
+					radial-gradient(60% 40% at 85% 0%, rgba(0, 50, 219, 0.12), transparent 70%),
+					radial-gradient(50% 35% at 0% 100%, rgba(113, 171, 35, 0.09), transparent 70%),
+					var(--bg);
+				background-attachment: fixed;
+				font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+				font-size: 1rem; line-height: 1.65;
+				overflow-wrap: break-word;
+			}
+			h1, h2, h3, h4, h5, h6 { margin: 1.3em 0 0.5em; line-height: 1.25; font-weight: 600; }
+			h1 { font-size: 1.7em; } h2 { font-size: 1.35em; } h3 { font-size: 1.1em; }
+			h1, h2 { border-bottom: 1px solid var(--edge); padding-bottom: 0.3em; }
+			a { color: var(--sky); }
+			hr { border: 0; border-top: 1px solid var(--edge); margin: 28px 0; }
+			blockquote { margin: 0 0 1em; padding: 0 1em; border-left: 2px solid var(--sky); color: var(--muted); }
+			img { max-width: 100%; border-radius: 6px; }
+			code {
+				font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+				font-size: 0.875em;
+				background: rgba(6, 137, 228, 0.10); border-radius: 4px; padding: 0.15em 0.4em;
+			}
+			pre {
+				background: rgba(0, 0, 0, 0.06); border: 1px solid var(--edge);
+				border-radius: 6px; padding: 16px; overflow: auto;
+				line-height: 1.6; tab-size: 4;
+			}
+			@media (prefers-color-scheme: dark) { pre { background: rgba(0, 0, 0, 0.3); } }
+			pre code { background: transparent; padding: 0; font-size: 0.8125rem; }
+			table { border-collapse: collapse; width: 100%; margin: 1em 0; display: block; overflow-x: auto; }
+			th, td { border: 1px solid var(--edge); padding: 5px 12px; text-align: left; }
+			th { color: var(--sky); font-size: 0.8em; letter-spacing: 0.05em; }
+			input[type="checkbox"] { accent-color: #0689e4; }
+			input[type="checkbox"][disabled] { cursor: not-allowed; }
+			del { text-decoration: line-through; }
