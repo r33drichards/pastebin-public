@@ -260,9 +260,16 @@ Required hosted gates (execution results are still pending, not implied by YAML)
    database connection, then proves wpdb reconnection/replay refuses insertion
    rather than autocommitting on the new connection. Test-only row cleanup is
    limited to the exact synthetic winning ID; fixture fingerprints must match.
+   A further bounded loopback packet proxy forwards the fixture's unchanged
+   MySQL handshake/authentication and SQL, waits for the server's genuine OK to
+   `COMMIT`, then closes the connection without forwarding any reply byte. It
+   permits the actual wpdb reconnect, requires `CommitUncertain`, and verifies
+   committed bytes and an identical-row dry run through an independent direct
+   connection. It refuses TLS/compression rather than downgrading settings, logs
+   no packets/credentials, accepts no remote target and lives at most 60 seconds.
    These are required hosted tests, not claims of passing until that exact head
-   succeeds. Genuine COMMIT-response-loss remains unproven: the local exception
-   double is not a network/protocol fault test, and cannot close that gate.
+   succeeds. Pure packet tests and exception doubles cannot close the real
+   protocol-loss gate.
 4. Retain all existing canonical HTTP, database-tenancy, browser/runner, native
    ZIP verification and package-provenance requirements. Do not publish a real
    backup/export as a CI artifact. The migration module is not added to pbin.zip.

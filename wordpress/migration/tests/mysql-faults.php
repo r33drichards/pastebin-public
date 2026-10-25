@@ -2,8 +2,8 @@
 /** Included only by mysql.php after its exact disposable fixture validation. */
 if (PHP_SAPI !== 'cli' || !isset($target, $wpdb, $database, $prefix, $after)) { throw new RuntimeException('Validated MySQL fixture required'); }
 $children = [];
-function startFaultWorker(string $mode): array {
-    $process = proc_open([PHP_BINARY, __DIR__ . '/mysql-worker.php', $mode], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+function startFaultWorker(string $mode, array $arguments = []): array {
+    $process = proc_open([PHP_BINARY, __DIR__ . '/mysql-worker.php', $mode, ...$arguments], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     verify(is_resource($process), 'Cannot start fault worker');
     stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
     return ['process' => $process, 'pipes' => $pipes];
@@ -87,6 +87,52 @@ try {
     echo "PASS: real MySQL killed-client rollback/lock release, observed concurrent insertion conflict, and reconnect-replay fencing (not COMMIT-response-loss)\n";
 } finally {
     foreach ($children as &$child) {
+        if ($child === []) { continue; }
+        if (proc_get_status($child['process'])['running']) { proc_terminate($child['process'], 9); }
+        foreach ($child['pipes'] as $pipe) { if (is_resource($pipe)) { fclose($pipe); } }
+        proc_close($child['process']);
+    }
+}
+
+
+require __DIR__ . '/mysql-commit-fixture.php';
+function proxyLine(array $proxy): string {
+    $deadline = microtime(true) + 15; $buffer = '';
+    while (microtime(true) < $deadline) {
+        $read = [$proxy['pipes'][1]]; $write = $except = [];
+        $ready = stream_select($read, $write, $except, 0, 100000);
+        verify($ready !== false, 'Proxy select failed');
+        if ($ready) {
+            $part = fgets($proxy['pipes'][1], 128); if ($part !== false) { $buffer .= $part; }
+            verify(strlen($buffer) <= 128, 'Proxy control message too large');
+            if (str_ends_with($buffer, "\n")) { return trim($buffer); }
+        }
+        if (!proc_get_status($proxy['process'])['running'] && feof($proxy['pipes'][1])) { break; }
+    }
+    throw new RuntimeException('Proxy control timeout or early exit');
+}
+$proxyProcess = proc_open(['python3', __DIR__ . '/commit-loss-proxy.py'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $proxyPipes);
+verify(is_resource($proxyProcess), 'Cannot start disposable commit fault proxy');
+stream_set_blocking($proxyPipes[1], false); stream_set_blocking($proxyPipes[2], false);
+$proxy = ['process' => $proxyProcess, 'pipes' => $proxyPipes]; $commitWorker = [];
+try {
+    $ready = proxyLine($proxy); verify(preg_match('/\AREADY ([0-9]{4,5})\z/', $ready, $match) === 1, 'Proxy did not expose its loopback port');
+    $commitWorker = startFaultWorker('commit-loss', [$match[1]]);
+    verify(proxyLine($proxy) === 'COMMIT_OK_DROPPED', 'No genuine server COMMIT OK was withheld');
+    faultMessage($commitWorker, 'commit-uncertain'); finishFaultWorker($commitWorker);
+    // The direct observer is a different connection, outside the fault proxy.
+    // It must see the committed row even though the importer never got the OK.
+    $commitExport = commitFaultExport();
+    $commitRow = $commitExport->data['records'][0]['fields'];
+    verify($target->read('pastes', $commitRow[0], false) === $commitRow, 'Observer could not establish actual committed bytes');
+    $reconciled = (new \Pbin\Migration\Importer($target))->reconcile($commitExport);
+    verify($reconciled['rows'] === ['insert' => 0, 'identical' => 1, 'conflict' => 0], 'Fresh reconciliation did not resolve uncertain commit');
+    faultCommand($proxy, 'stop'); verify(proxyLine($proxy) === 'COMPLETE', 'Proxy did not verify one drop and an actual reconnect'); finishFaultWorker($proxy);
+    verify($wpdb->query($wpdb->prepare("DELETE FROM `{$prefix}pastes` WHERE id = %s", $commitRow[0])) === 1, 'Cannot remove exact synthetic commit-fault row');
+    verify(fingerprints() === $after, 'Commit-response-loss test affected unrelated data');
+    echo "PASS: actual MySQL COMMIT OK withheld by loopback packet proxy, importer uncertainty, independent committed-byte readback and fresh identical-row reconciliation\n";
+} finally {
+    foreach ([$commitWorker, $proxy] as $child) {
         if ($child === []) { continue; }
         if (proc_get_status($child['process'])['running']) { proc_terminate($child['process'], 9); }
         foreach ($child['pipes'] as $pipe) { if (is_resource($pipe)) { fclose($pipe); } }

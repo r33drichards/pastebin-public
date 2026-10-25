@@ -9,6 +9,7 @@ trap 'rm -rf "$WORK"' EXIT
 export GOTOOLCHAIN=local
 "$GO" version
 for file in "$ROOT"/wordpress/migration/*.php "$ROOT"/wordpress/migration/tests/*.php; do "$PHP" -l "$file" >/dev/null; done
+python3 -m unittest discover -s "$ROOT/wordpress/migration/tests" -p 'test_*.py'
 # Archived Bolt is isolated to this normal, synthetic-only writer subprocess.
 # Never disable checkptr, and never link that writer into the production reader.
 export PBIN_LEGACY_BOLT="$WORK/legacy.db"

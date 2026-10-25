@@ -10,7 +10,7 @@ workerCheck(is_dir($fixture) && realpath($fixture) === $fixture && str_contains(
 workerCheck($load === $fixture . '/site/wp-load.php' && realpath($load) === $load, 'Expected fixture WordPress core');
 workerCheck(preg_match('/\Apbin_ci_[a-f0-9]{24}\z/', $database) === 1, 'Expected random disposable database');
 $mode = $argv[1] ?? '';
-workerCheck(in_array($mode, ['killed', 'race-winner', 'race-loser', 'reconnect'], true), 'Unknown worker mode');
+workerCheck(in_array($mode, ['killed', 'race-winner', 'race-loser', 'reconnect', 'commit-loss'], true), 'Unknown worker mode');
 define('SHORTINIT', true); require $load;
 workerCheck(defined('DB_NAME') && DB_NAME === $database, 'Wrong database');
 workerCheck(defined('DB_HOST') && preg_match('/\A(?:127\.0\.0\.1|localhost)(?::[0-9]+)?\z/', DB_HOST) === 1, 'Local MySQL only');
@@ -31,6 +31,23 @@ function workerCommand(): string {
     workerCheck(stream_select($read, $write, $except, 20) === 1, 'Parent command timeout');
     $line = fgets(STDIN, 64); workerCheck(is_string($line), 'Parent closed command stream');
     return trim($line);
+}
+if ($mode === 'commit-loss') {
+    $port = $argv[2] ?? '';
+    workerCheck(preg_match('/\A[0-9]{4,5}\z/', $port) === 1 && (int) $port > 1023 && (int) $port < 65536, 'Invalid local fault-proxy port');
+    // Only existing disposable fixture credentials, kept in process memory. No
+    // config writes, credential arguments, TLS flag changes or new grants.
+    $proxy = new wpdb(DB_USER, DB_PASSWORD, DB_NAME, '127.0.0.1:' . $port);
+    $proxy->set_prefix($wpdb->prefix);
+    $proxy->suppress_errors(true);
+    $proxyTarget = new WpdbDestination($proxy, $prefix, $identity, $database);
+    require __DIR__ . '/mysql-commit-fixture.php';
+    $export = commitFaultExport(); $importer = new \Pbin\Migration\Importer($proxyTarget);
+    $plan = $importer->reconcile($export);
+    workerCheck($plan['rows'] === ['insert' => 1, 'identical' => 0, 'conflict' => 0], 'Commit-loss fixture was not empty');
+    try { $importer->apply($export, $plan['plan_sha256'], true); }
+    catch (\Pbin\Migration\CommitUncertain $error) { emitWorker(['state' => 'commit-uncertain']); exit(0); }
+    throw new RuntimeException('Lost actual COMMIT response was not reported uncertain');
 }
 $target->begin();
 $connection = (string) $wpdb->get_var('SELECT CONNECTION_ID()');
