@@ -27,6 +27,8 @@ class WordPressInstallerFixtureTests(unittest.TestCase):
         gate = (CI / 'install-package.php').read_text()
         self.assertIn("$rejected->install($canonical", gate)
         self.assertIn("incompatible_archive_no_plugins", gate)
+        self.assertIn("$rejection = $rejected->skin->result;", gate)
+        self.assertIn("$result === true || !is_wp_error($rejection)", gate)
         self.assertIn("$upgrader->install($installer", gate)
         self.assertIn("$actual !== $expected", gate)
         self.assertIn("$upgrader->plugin_info() !== 'pbin/pbin.php'", gate)

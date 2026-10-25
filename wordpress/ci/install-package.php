@@ -39,7 +39,10 @@ require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
 // ordinary WordPress plugin upload. This must fail before any plugin is placed.
 $rejected = new Plugin_Upgrader(new Automatic_Upgrader_Skin());
 $result = $rejected->install($canonical, ['clear_update_cache' => false, 'overwrite_package' => false]);
-if (!is_wp_error($result) || $result->get_error_code() !== 'incompatible_archive_no_plugins'
+// Early source-selection errors are on the skin result; install() can return []
+// before WP_Upgrader has populated its own success-result array.
+$rejection = $rejected->skin->result;
+if ($result === true || !is_wp_error($rejection) || $rejection->get_error_code() !== 'incompatible_archive_no_plugins'
     || file_exists($pluginDir) || is_link($pluginDir)) {
     throw new RuntimeException('Controller envelope rejection regression failed');
 }
