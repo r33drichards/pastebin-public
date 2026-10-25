@@ -34,6 +34,9 @@ account allowed to create/drop test databases. The fixture only creates random
 `pbin_ci_<24 hex>` databases and drops the exact database it created. It refuses
 non-local database hosts and never reuses an existing site/database. Do not
 supply production credentials. Logs omit wp-config.php and database dumps.
+The additional offline migration gate uses Go 1.24.8 and a C compiler for its
+race/checkptr tests. Go is only a one-shot legacy-data tool, not an application
+backend or a dependency of the installable WordPress package.
 
 ```
 bash wordpress/ci/check-unit.sh
@@ -65,7 +68,8 @@ To smoke-test canonical `/paste` behavior, run a second fixture with
 ## Gates and supported test matrix
 
 The checked-in workflow uses exact source SHA checkout, pinned actions, Node
-22.14.0, Python 3.12.10, lockfile-pinned Playwright 1.63.0/Chromium, MySQL 8.4.4,
+22.14.0, Python 3.12.10, Go 1.24.8 for offline migration only,
+lockfile-pinned Playwright 1.63.0/Chromium, MySQL 8.4.4,
 and real WordPress **7.1.3** at
 `fc9832bef919c2a08541248db23af90d14ffb082`, verified against the official GitHub
 tag and the observed Wasmer core source. The observed hosting runtime is
@@ -102,7 +106,15 @@ pin is no longer the required target gate.
    silently dropping an enabled runner. No Firefox/WebKit result is implied.
 7. A second real site verifies `/paste` canonical routing, legacy alias,
    language/ID handling, snapshots and ordinary WordPress home/login/REST.
-8. Only then does a separate `needs: [test]` job download and reverify both
+8. A mandatory offline migration step reads an actual synthetic legacy Bolt
+   database with the pinned maintained reader, including race/checkptr checks.
+   A separately named real WordPress/MySQL migration step uses another fresh
+   disposable fixture and the exact extracted plugin. It checks byte-preserving
+   import, conflicts, interrupted rollback, no-op reruns and ordinary WordPress
+   preservation. The trusted client requires both step names to succeed and
+   protects the entire migration tool/dependency/fixture tree; old successful CI
+   without either gate cannot substitute. See [migration/README.md](../migration/README.md).
+9. Only then does a separate `needs: [test]` job download and reverify both
    artifacts, including their payload binding, before retaining the same digests
    and source revision. Logs have seven-day retention; packages fourteen days.
    `pbin-wordpress-<SHA>` is the existing controller bundle, not a WP upload.
@@ -142,3 +154,15 @@ pending; no fake deploy-ready YAML has been supplied.
 Official pin evidence was verified via GitHub refs for actions/checkout v4.2.2,
 actions/setup-node v4.4.0, actions/setup-python v5.6.0,
 actions/upload-artifact v4.6.2 and actions/download-artifact v4.3.0.
+The offline-only Go setup pins `actions/setup-go` v5.5.0 to
+`d35c59abb061a4a6fb18e82ac0862c26744d6ab5`, verified from its
+[official tag reference](https://api.github.com/repos/actions/setup-go/git/ref/tags/v5.5.0).
+
+## Preview quota gate
+
+The regular unit gate includes the synthetic preview quota suite. The real
+WordPress fixture additionally runs `check-preview-quota.sh`: two independent
+connections must be observed waiting on the same InnoDB quota lock, and only
+one can take the final byte/row capacity. This gate is not a staging mutation
+or proof of a global physical disk budget. See
+[preview data bounds](../preview/DATA-QUOTAS.md) for scope and retained-tenant limits.

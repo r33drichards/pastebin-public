@@ -37,6 +37,7 @@ CONTROL_PATH = ".github/workflows/preview-reconcile.yml"
 JOBS = {"Build, unit, real WordPress and browser gates", "Retain tested immutable package (not deployment)"}
 TEST_STEPS = {
     "Required syntax and unit checks", "Build reproducible artifact and extract exact bytes for tests",
+    "Required offline legacy migration checks", "Real WordPress legacy migration MySQL gate",
     "Real WordPress, MySQL and Chromium tests against the built package",
     "Real WordPress controller HTTPS and authentication gate",
     "Install standard ZIP through WordPress Plugin_Upgrader",
@@ -47,8 +48,17 @@ ARTIFACT_STEPS = {"Download this run's tested bytes only", "Verify transported a
                   "Retain the exact tested package", "Verify transported WordPress installer",
                   "Retain exact tested WordPress installer"}
 RECIPE_FILES = {CI_PATH, "wordpress/tools/package.py", "wordpress/tools/wordpress_installer.py", "wordpress/preview/loader.php",
-                "wordpress/preview/selector.php"}
-RECIPE_DIRS = ("wordpress/preview/", "wordpress/ci/", "wordpress/tests/", "e2e/", "acceptance/")
+                "wordpress/preview/selector.php", "wordpress/ci/check-legacy-import-unit.sh",
+                "wordpress/ci/check-legacy-import.sh", "wordpress/migration/import.php",
+                "wordpress/migration/importer.php", "wordpress/migration/bootstrap.php",
+                "wordpress/migration/bolt-export/go.mod",
+                "wordpress/migration/bolt-export/go.sum"}
+RECIPE_DIRS = ("wordpress/preview/", "wordpress/ci/", "wordpress/tests/", "wordpress/migration/",
+               "e2e/", "acceptance/")
+# These write-path bytes are reviewed independently of a feature PR. Server-side
+# QuotaRecipe rechecks actual retained files; this Git-tree check is preflight.
+QUOTA_WRITE_PATHS = {"wordpress/pbin/includes/store.php", "wordpress/pbin/includes/preview-quota.php"}
+RECIPE_FILES.update(QUOTA_WRITE_PATHS)
 MAX_BUNDLE = 70 * 1024 * 1024
 MAX_JSON = 8 * 1024 * 1024
 TOKEN_RE = re.compile(r"[0-9a-f]{64}\Z")

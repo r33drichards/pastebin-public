@@ -53,6 +53,10 @@ mu = site / 'wp-content/mu-plugins'
 (mu / 'pbin-preview').mkdir(parents=True)
 for filename in ('loader.php', 'selector.php', 'health.php'):
     shutil.copyfile(ROOT / 'wordpress/preview' / filename, mu / 'pbin-preview' / filename)
+# The loader serves retained immutable assets without executing release PHP.
+# Copy this trusted module for the file-registry HTTP fixture too.
+(mu / 'pbin-preview/control').mkdir()
+shutil.copyfile(ROOT / 'wordpress/preview/control/static-assets.php', mu / 'pbin-preview/control/static-assets.php')
 (mu / 'pbin-preview.php').write_text("<?php\nrequire __DIR__ . '/pbin-preview/loader.php';\n")
 data = {'root': str(previews), 'revision': revision, 'a': 910101, 'b': 910102,
         'a_token': states['910101']['state_token'], 'b_token': states['910102']['state_token'],

@@ -16,7 +16,7 @@ function bootstrap(Instance $instance): void {
     if (!$assetRequest) {
     add_action('plugins_loaded', static function () {
         $instance = Instance::current();
-        if (get_option($instance->optionKey('schema_version')) !== PBIN_Store::SCHEMA_VERSION) { PBIN_Store::install(); }
+        if (get_option($instance->optionKey('schema_version')) !== PBIN_Store::schemaVersion()) { PBIN_Store::install(); }
     });
     }
     add_action('init', static function () {

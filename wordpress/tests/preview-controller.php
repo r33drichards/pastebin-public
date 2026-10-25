@@ -29,6 +29,8 @@ class MemoryRegistry {
     public array $records = [];
     public $beforeCas = null;
     public bool $uncertain = false;
+    public bool $inventoryBlocked = false;
+    public function assertDataInventory(): void { if ($this->inventoryBlocked) { throw new \Pbin\Preview\RegistryException('Synthetic orphan table'); } }
     public function tenant(string $tenant): ?array { return $this->records[$tenant] ?? null; }
     public function compareAndSwap(string $tenant, ?string $token, array $desired): array {
         if ($this->beforeCas !== null) { $action = $this->beforeCas; $this->beforeCas = null; $action($this); }
@@ -56,7 +58,10 @@ class PackageDouble {
         if (self::$reject) { throw new ControlException('Injected invalid package'); }
         check(!file_exists($directory), 'Extractor received existing destination');
         mkdir($directory, 0700); mkdir($directory . '/pbin', 0700);
-        file_put_contents($directory . '/pbin/runtime.php', '<?php $GLOBALS["branch_executed"] = true;');
+        mkdir($directory . '/pbin/includes', 0700);
+        foreach (['runtime.php', 'includes/mount.php', 'includes/instance.php', 'includes/store.php', 'includes/preview-quota.php', 'includes/http.php'] as $file) {
+            copy(dirname(__DIR__) . '/pbin/' . $file, $directory . '/pbin/' . $file);
+        }
         file_put_contents($directory . '/manifest.json', $sha . ':' . $hash);
         return ['manifest_sha256' => hash_file('sha256', $directory . '/manifest.json')];
     }
@@ -114,6 +119,33 @@ test('verified install, exact retry, rollback and retirement preserve code/data'
     $controller->retire('pr-1', $back['state_token']);
     check(is_file($directory . '/pbin/runtime.php') && file_get_contents($config->storage->root . '/data/pr-1/keep') === 'user-data', 'Retirement deleted data');
     check(empty($GLOBALS['branch_executed']), 'Controller executed branch PHP');
+});
+test('orphan data blocks provisioning, while retirement remains available', function ($work, $config, $registry, $controller) {
+    $registry->inventoryBlocked = true;
+    denied(fn() => install($controller), \Pbin\Preview\RegistryException::class);
+    check($registry->tenant('pr-1') === null, 'Inventory rejection published a release');
+    $controller->retire('pr-1', null);
+});
+test('rollback rejects a retained package missing the reviewed quota path', function ($work, $config, $registry, $controller) {
+    $a = install($controller);
+    $b = install($controller, 'pr-1', 'b', $a['state_token']);
+    $file = $config->storage->root . '/releases/pr-1/' . $a['active'] . '/pbin/includes/store.php';
+    chmod($file, 0600); file_put_contents($file, '<?php // self-declared quota_version=2 is not proof');
+    $before = $registry->tenant('pr-1');
+    denied(fn() => $controller->rollback('pr-1', $b['state_token'], $a['active']));
+    check($registry->tenant('pr-1') === $before, 'Unsupported rollback changed active state');
+});
+test('both actual quota write-path files match the reviewed trusted recipe', function ($work, $config, $registry, $controller) {
+    $a = install($controller);
+    $plugin = $config->storage->root . '/releases/pr-1/' . $a['active'] . '/pbin';
+    \Pbin\Preview\Control\QuotaRecipe::verify($plugin);
+    foreach (['includes/store.php', 'includes/preview-quota.php'] as $path) {
+        $file = $plugin . '/' . $path; $original = file_get_contents($file);
+        chmod($file, 0600); file_put_contents($file, $original . "\n// self-declared compatible flag is not independent approval\n");
+        denied(fn() => \Pbin\Preview\Control\QuotaRecipe::verify($plugin));
+        file_put_contents($file, $original); chmod($file, 0444);
+    }
+    \Pbin\Preview\Control\QuotaRecipe::verify($plugin);
 });
 test('existing release cannot be overwritten and incomplete orphan is not replaced', function ($work, $config, $registry, $controller) {
     $a = install($controller); $path = $config->storage->root . '/releases/pr-1/' . $a['active'] . '/manifest.json'; $before = file_get_contents($path);

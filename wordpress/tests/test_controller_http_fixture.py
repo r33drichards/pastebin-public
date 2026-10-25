@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import ssl
 import subprocess
@@ -107,6 +108,33 @@ class ControllerFixtureTests(unittest.TestCase):
                 else:
                     self.assertEqual(result.stdout.count('SYNTHETIC_PRIVATE_ERROR_TEXT'), 3)
                 self.assertEqual(result.stderr, '')
+
+    def test_trusted_controller_copy_list_contains_all_control_modules(self):
+        source = (CI / 'prepare-controller-site.php').read_text()
+        copy_list = next(line for line in source.splitlines() if "foreach ([" in line and "$pbinControllerSource . '/control/'" in line)
+        copied = set(re.findall(r"'([a-z-]+\.php)'", copy_list.split("] as $file)", 1)[0]))
+        expected = {path.name for path in (ROOT / 'wordpress/preview/control').glob('*.php')}
+        self.assertEqual(copied, expected)
+        self.assertIn('quota-recipe.php', copied)
+        self.assertIn('static-assets.php', copied)
+
+    def test_preview_http_fixture_copies_trusted_static_server(self):
+        with tempfile.TemporaryDirectory(prefix='pbin-wp-ci.') as temp:
+            work = Path(temp).resolve()
+            source = work / 'source'
+            (source / 'static/css').mkdir(parents=True)
+            (source / 'pbin.php').write_text('<?php // inert test entry\n')
+            (source / 'runtime.php').write_text('<?php\nnamespace Pbin\\Plugin;\n')
+            (source / 'static/css/app.css').write_text('body { color: black; }\n')
+            artifact = work / 'original.zip'
+            result = subprocess.run([sys.executable, str(ROOT / 'wordpress/tools/package.py'), '--source', str(source), '--revision', 'a' * 40, '--output', str(artifact)], check=True, capture_output=True, text=True)
+            digest = json.loads(result.stdout)['artifact_sha256']
+            env = dict(os.environ, PBIN_WP_FIXTURE=str(work), PBIN_WP_TEST_SITE=str(work / 'site'), PBIN_TEST_ARTIFACT=str(artifact), PBIN_TEST_ARTIFACT_SHA256=digest)
+            subprocess.run([sys.executable, str(CI / 'prepare-previews.py')], env=env, capture_output=True, text=True, check=True)
+            target = work / 'site/wp-content/mu-plugins/pbin-preview'
+            for name in ('loader.php', 'selector.php', 'health.php', 'control/static-assets.php'):
+                self.assertEqual((target / name).read_bytes(), (ROOT / 'wordpress/preview' / name).read_bytes())
+            self.assertFalse((target / 'control/quota-recipe.php').exists(), 'File fixture is not a MySQL control-plane deployment')
 
     def test_artifact_preparation_uses_exact_sha_and_separate_upgrade(self):
         with tempfile.TemporaryDirectory(prefix='pbin-wp-ci.') as temp:

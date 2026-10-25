@@ -10,7 +10,7 @@ if ($mode === '') {
     $cases = ['anonymous' => 403, 'missing-nonce' => 403, 'bad-nonce' => 403, 'app-error' => 403,
         'wrong-principal' => 403, 'wrong-capability' => 403, 'wrong-method' => 405, 'unknown-route' => 404,
         'query-route' => 403, 'cookie-get' => 200, 'app-get' => 200, 'disabled-setup' => 200,
-        'loader-mysql' => 200, 'loader-mysql-unavailable' => 404, 'loader-bad-health-nonce' => 404, 'loader-branch-error' => 404];
+        'loader-mysql' => 200, 'loader-mysql-unavailable' => 404, 'loader-bad-health-nonce' => 404, 'loader-branch-error' => 404, 'loader-orphan-data' => 404, 'loader-retained-assets' => 200];
     foreach ($cases as $case => $expected) {
         $process = proc_open([PHP_BINARY, __FILE__, $case], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         check(is_resource($process), 'Cannot launch offline child'); fclose($pipes[0]);
@@ -19,6 +19,7 @@ if ($mode === '') {
         $result = json_decode($output, true, 8, JSON_THROW_ON_ERROR);
         check($result['status'] === $expected, 'Unexpected status for ' . $case . ': ' . $output);
         check(!$result['leaked_runtime_error'], 'Loader disclosed arbitrary runtime exception text');
+        if ($case === 'loader-retained-assets') { check($result['body'] === 'const asset = true;', 'Trusted asset server changed retained bytes'); }
         if (str_starts_with($case, 'loader-')) {
             check($result['executed'] === ($case === 'loader-mysql'), 'Wrong branch execution for ' . $case);
         } elseif ($expected !== 200) {
@@ -26,7 +27,7 @@ if ($mode === '') {
         }
         echo "PASS: offline adapter/loader $case\n";
     }
-    echo "PASS: 16 offline adapter/loader cases; not actual WordPress authentication or hosted SQL\n";
+    echo "PASS: 18 offline adapter/loader cases; not actual WordPress authentication or hosted SQL\n";
     exit;
 }
 $work = sys_get_temp_dir() . '/pbin-http-double-' . bin2hex(random_bytes(8)); mkdir($work, 0700);
@@ -77,6 +78,7 @@ class ReadWpdb {
     public function get_results($sql, $format): array {
         ++$GLOBALS['db_reads'];
         if ($GLOBALS['db_unavailable']) { $this->last_error = 'unavailable'; return []; }
+        if (str_starts_with($sql, 'SELECT TABLE_NAME')) { return ($GLOBALS['orphan_data'] ?? false) ? [['TABLE_NAME' => 'wp_pbin_pr_999_pastes']] : []; }
         if (str_starts_with($sql, 'SELECT ENGINE')) { return [['ENGINE' => 'InnoDB', 'TABLE_COLLATION' => 'utf8mb4_bin']]; }
         if (str_starts_with($sql, 'SHOW COLUMNS')) {
             $rows = [];
@@ -98,21 +100,31 @@ ini_set('error_log', $work . '/expected-errors.log');
 ob_start();
 register_shutdown_function(static function () use ($work): void {
     $body = ob_get_clean(); $status = http_response_code() ?: 200;
+    if (str_starts_with($GLOBALS['mode'], 'loader-')) { $GLOBALS['executed'] = class_exists('Pbin\\Plugin\\Instance', false); }
     $result = ['status' => $status, 'db_reads' => $GLOBALS['db_reads'], 'executed' => $GLOBALS['executed'], 'body' => $body, 'leaked_runtime_error' => str_contains($body . (is_file($work . '/expected-errors.log') ? file_get_contents($work . '/expected-errors.log') : ''), 'synthetic-sensitive-runtime-marker')];
     removeTest($work); echo json_encode($result, JSON_THROW_ON_ERROR);
 });
 if (str_starts_with($mode, 'loader-')) {
     $sha = str_repeat('a', 40); $token = str_repeat('b', 64); $digest = str_repeat('c', 64);
     $root = $work . '/private/releases/pr-1/' . $sha; mkdir($work . '/private/releases/pr-1', 0700); mkdir($root, 0700); mkdir($root . '/pbin', 0700);
-    file_put_contents($root . '/pbin/runtime.php', '<?php namespace Pbin\\Plugin; class Instance { public function __construct(...$args) {} } function bootstrap($instance) { $GLOBALS["executed"] = true; echo "BRANCH"; }');
+    mkdir($root . '/pbin/includes', 0700);
+    foreach (['runtime.php', 'includes/mount.php', 'includes/instance.php', 'includes/store.php', 'includes/preview-quota.php', 'includes/http.php'] as $file) { copy(dirname(__DIR__) . '/pbin/' . $file, $root . '/pbin/' . $file); }
+    $GLOBALS['orphan_data'] = $mode === 'loader-orphan-data';
     if ($mode === 'loader-branch-error') { file_put_contents($root . '/pbin/runtime.php', '<?php throw new \\RuntimeException("synthetic-sensitive-runtime-marker");'); }
     $GLOBALS['registry_json'] = json_encode(['version' => 2, 'tenants' => ['pr-1' => ['state_token' => $token, 'enabled' => true, 'active' => $sha, 'releases' => [$sha => ['artifact_sha256' => $digest, 'manifest_sha256' => $digest]]]]], JSON_UNESCAPED_SLASHES);
     file_put_contents($work . '/private/registry.json', $GLOBALS['registry_json']); // Must NEVER be a MySQL error fallback.
     $GLOBALS['db_unavailable'] = $mode === 'loader-mysql-unavailable';
     $_SERVER['REQUEST_URI'] = $mode === 'loader-bad-health-nonce' ? '/previews/pr-1/health?pbin-health-nonce=bad' : '/previews/pr-1/paste';
+    if ($mode === 'loader-retained-assets') {
+        mkdir($root . '/pbin/static', 0700); mkdir($root . '/pbin/static/js', 0700);
+        file_put_contents($root . '/pbin/static/js/fixture.js', 'const asset = true;');
+        file_put_contents($root . '/pbin/runtime.php', '<?php throw new \\RuntimeException("synthetic-sensitive-runtime-marker");');
+        unlink($root . '/pbin/includes/preview-quota.php');
+        $_SERVER['REQUEST_URI'] = '/previews/pr-1/_releases/' . $sha . '/static/js/fixture.js';
+    }
     mkdir($work . '/control', 0700); mkdir($work . '/control/control', 0700);
     foreach (['mysql-registry.php', 'selector.php', 'health.php'] as $file) { copy($control . '/' . $file, $work . '/control/' . $file); }
-    foreach (['controller.php', 'storage.php'] as $file) { copy($control . '/control/' . $file, $work . '/control/control/' . $file); }
+    foreach (['controller.php', 'storage.php', 'quota-recipe.php', 'static-assets.php'] as $file) { copy($control . '/control/' . $file, $work . '/control/control/' . $file); }
     $source = str_replace("PHP_SAPI === 'cli'", 'false /* Offline web-SAPI simulation only */', file_get_contents($control . '/loader.php'), $replaced);
     check($replaced === 1, 'Must bypass exactly one CLI check in test copy');
     file_put_contents($work . '/control/loader.php', $source); require $work . '/control/loader.php'; exit;

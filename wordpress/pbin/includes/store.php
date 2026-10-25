@@ -6,17 +6,22 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Exception;
 defined('ABSPATH') || exit;
+require_once __DIR__ . '/preview-quota.php';
 
 /** Storage has no serialized PHP objects and never uses WordPress posts/options
  * for user documents. Snapshots intentionally expose no update/delete method. */
 final class PBIN_Store {
     public const SCHEMA_VERSION = '1';
+    public const PREVIEW_SCHEMA_VERSION = '2';
+    public static function schemaVersion(): string { return Instance::current()->preview ? self::PREVIEW_SCHEMA_VERSION : self::SCHEMA_VERSION; }
     private $db;
     private string $prefix;
+    private ?PreviewQuota $quota;
 
     public function __construct($db = null) {
         $this->db = $db ?? $GLOBALS['wpdb'];
         $this->prefix = $this->db->prefix . Instance::current()->storagePrefix();
+        $this->quota = Instance::current()->preview ? new PreviewQuota($this->db, $this->prefix) : null;
     }
 
     public static function install(): void {
@@ -62,10 +67,15 @@ final class PBIN_Store {
                 throw new RuntimeException('pbin database migration failed');
             }
         }
-        update_option(Instance::current()->optionKey('schema_version'), self::SCHEMA_VERSION, false);
+        if (Instance::current()->preview) { (new PreviewQuota($wpdb, $prefix))->install(); }
+        update_option(Instance::current()->optionKey('schema_version'), self::schemaVersion(), false);
     }
 
     private function insert(string $table, array $row): void {
+        if ($this->quota !== null) {
+            $this->quota->insert($table, $row, $table === 'snapshots' ? $row['paste_id'] : null);
+            return;
+        }
         if ($this->db->insert($this->prefix . $table, $row) === false) {
             throw new RuntimeException('pbin database insert failed');
         }
@@ -121,6 +131,10 @@ final class PBIN_Store {
     public function GetPaste(string $id): array { return self::paste($this->row('pastes', $id)); }
 
     public function UpdatePaste(string $id, string $text, string $lang, string $title = ''): void {
+        if ($this->quota !== null) {
+            $this->quota->updatePaste($id, ['text' => $text, 'language' => $lang, 'title' => $title]);
+            return;
+        }
         // A no-op update affects zero rows; distinguish it from a missing paste.
         $this->GetPaste($id);
         if ($this->db->update($this->prefix . 'pastes', ['text' => $text, 'language' => $lang, 'title' => $title], ['id' => $id]) === false) {
@@ -168,6 +182,7 @@ final class PBIN_Store {
         $bucket = hash_hmac('sha256', ($_SERVER['REMOTE_ADDR'] ?? '') . "\0" . $route, wp_salt('nonce'));
         $now = microtime(true);
         $table = $this->prefix . 'limits';
+        if ($this->quota !== null) { return $this->quota->allowRequest($bucket, $now, $rate); }
         $this->db->query($this->db->prepare("INSERT IGNORE INTO $table (bucket,available_at) VALUES (%s,0)", $bucket));
         $changed = $this->db->query($this->db->prepare("UPDATE $table SET available_at=%f WHERE bucket=%s AND available_at <= %f", $now + 1 / $rate, $bucket, $now));
         if ($changed === false) { throw new RuntimeException('pbin rate limiter failed'); }

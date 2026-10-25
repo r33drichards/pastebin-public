@@ -109,9 +109,13 @@ execution and no nonce is reflected elsewhere. This is not a synthetic OK.
 
 ## Intentional lifecycle limit and recovery design
 
-The proof is deliberately bounded: two enabled tenants, three immutable retained
-releases per tenant, 1024 registry records including tombstones, and the root
-limits above. A fourth SHA is blocked. Disabling a tenant does **not** reclaim
+The proof is deliberately bounded: at most two enabled tenants and a hard total
+of two retained/data-bearing tenants, three immutable retained releases per
+tenant, 1024 registry records including empty tombstones, and the root limits
+above. Retired tenants with releases still consume a data slot; retiring either
+of the first two does not admit a third distinct PR. See [data quotas](DATA-QUOTAS.md)
+for the 16 MiB logical-text ceiling and physical-storage limitations. A fourth
+SHA for one tenant is blocked. Disabling a tenant does **not** reclaim
 its code, registry releases or data, so this is not complete unattended teardown
 or an unlimited ongoing PR lifecycle. Lock recovery is not implemented as an
 endpoint and there is no age-based purge.

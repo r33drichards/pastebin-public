@@ -43,14 +43,14 @@ function sql(string $query): void {
     global $wpdb;
     verify($wpdb->query($query) !== false && $wpdb->last_error === '', 'Fixture SQL failed');
 }
-function fingerprints(string $excluded): array {
+function fingerprints(array $excluded): array {
     global $wpdb;
     $result = [];
     $tables = $wpdb->get_col('SHOW TABLES');
     verify(is_array($tables) && $wpdb->last_error === '', 'Cannot enumerate ordinary fixture tables');
     foreach ($tables as $table) {
         verify(preg_match('/\A[a-zA-Z0-9_]+\z/', $table) === 1, 'Unsafe fixture table');
-        if ($table === $excluded) { continue; }
+        if (in_array($table, $excluded, true)) { continue; }
         $rows = $wpdb->get_results("SELECT * FROM `$table`", ARRAY_A);
         verify(is_array($rows) && $wpdb->last_error === '', 'Cannot read ordinary fixture data');
         $encoded = array_map(fn($row) => json_encode($row, JSON_THROW_ON_ERROR), $rows);
@@ -60,9 +60,25 @@ function fingerprints(string $excluded): array {
 }
 
 $pbinRegistryMode = $argv[1] ?? 'run';
-$registry = new MysqlRegistry($wpdb, ['max_enabled' => 1]);
+$pbinRegistryPrefixRoot = $wpdb->base_prefix . 'registry_fixture_';
+$fixtureRegistryTables = [];
+function fixtureRegistry(string $tag, bool $install = true): MysqlRegistry {
+    global $wpdb, $table, $pbinRegistryPrefixRoot, $fixtureRegistryTables;
+    verify(in_array($tag, ['main', 'absent', 'upgrade', 'enabled', 'retained'], true), 'Unknown registry fixture scope');
+    $wpdb->set_prefix($pbinRegistryPrefixRoot . $tag . '_');
+    $table = $wpdb->base_prefix . 'pbin_preview_registry';
+    verify($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($table))) === null, 'Refusing to reuse a registry fixture table');
+    $fixtureRegistryTables[] = $table;
+    $registry = new MysqlRegistry($wpdb, ['max_enabled' => 1]);
+    if ($install) { $registry->installSchema(); }
+    return $registry;
+}
 if ($pbinRegistryMode === 'worker') {
     $request = json_decode($argv[2] ?? '', true, 16, JSON_THROW_ON_ERROR);
+    $prefix = $request['registry_prefix'] ?? '';
+    verify(is_string($prefix) && in_array($prefix, array_map(fn($tag) => $pbinRegistryPrefixRoot . $tag . '_', ['main', 'absent', 'upgrade', 'enabled', 'retained']), true), 'Invalid worker registry fixture scope');
+    $wpdb->set_prefix($prefix);
+    $registry = new MysqlRegistry($wpdb, ['max_enabled' => 1]);
     echo "READY:" . $wpdb->get_var('SELECT CONNECTION_ID()') . "\n"; flush();
     try {
         $record = $request['operation'] === 'retire'
@@ -70,12 +86,12 @@ if ($pbinRegistryMode === 'worker') {
             : $registry->compareAndSwap($request['tenant'], $request['token'], $request['desired']);
         echo json_encode(['outcome' => 'committed', 'record' => $record], JSON_THROW_ON_ERROR) . "\n";
     } catch (RegistryConflict $error) { echo "{\"outcome\":\"conflict\"}\n"; }
-    catch (RegistryException $error) { echo json_encode(['outcome' => $error->getMessage() === 'Enabled tenant bound exceeded' ? 'quota' : 'refused', 'type' => get_class($error), 'reason' => RaceObserver::category($error->getMessage())], JSON_THROW_ON_ERROR) . "\n"; }
+    catch (RegistryException $error) { echo json_encode(['outcome' => in_array($error->getMessage(), ['Enabled tenant bound exceeded', 'Retained data tenant bound exceeded'], true) ? 'quota' : 'refused', 'type' => get_class($error), 'reason' => RaceObserver::category($error->getMessage())], JSON_THROW_ON_ERROR) . "\n"; }
     exit;
 }
 verify($pbinRegistryMode === 'run', 'Unknown integration mode');
-$table = $wpdb->base_prefix . 'pbin_preview_registry';
-$before = fingerprints($table);
+$before = fingerprints([]);
+$registry = fixtureRegistry('main', false);
 refusal(fn() => $registry->snapshot());
 $registry->installSchema(); $registry->installSchema();
 verify($registry->snapshot() === ['version' => 2, 'tenants' => []], 'Expected empty registry');
@@ -105,6 +121,7 @@ function race(array $requests): array {
     $children = []; $observed = []; $captured = [];
     try {
         foreach ($requests as $request) {
+            $request['registry_prefix'] = $wpdb->base_prefix;
             $process = proc_open([PHP_BINARY, __FILE__, 'worker', json_encode($request, JSON_THROW_ON_ERROR)], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
             verify(is_resource($process), 'Cannot launch concurrent PHP worker'); fclose($pipes[0]);
             stream_set_timeout($pipes[1], 15); stream_set_timeout($pipes[2], 15);
@@ -173,6 +190,7 @@ function outcomes(array $actual, array $expected): void {
 function retireCurrent(MysqlRegistry $registry, string $tenant): void {
     $record = $registry->tenant($tenant); if ($record !== null) { $registry->retire($tenant, $record['state_token']); }
 }
+$registry = fixtureRegistry('absent');
 $out = race([
     ['operation' => 'install', 'tenant' => 'pr-910012', 'token' => null, 'desired' => releaseState('a')],
     ['operation' => 'retire', 'tenant' => 'pr-910012', 'token' => null],
@@ -182,12 +200,14 @@ $winner = array_values(array_filter($out, fn($entry) => $entry['outcome'] === 'c
 verify($registry->tenant('pr-910012') === $winner, 'Absent race lost authoritative winner');
 // If install won the race, close must re-read and reconcile, not assume it won.
 retireCurrent($registry, 'pr-910012');
+$registry = fixtureRegistry('upgrade');
 $a = $registry->compareAndSwap('pr-910013', null, releaseState('a'));
 $out = race([
     ['operation' => 'install', 'tenant' => 'pr-910013', 'token' => $a['state_token'], 'desired' => releaseState('b', $a['releases'])],
     ['operation' => 'install', 'tenant' => 'pr-910013', 'token' => $a['state_token'], 'desired' => releaseState('c', $a['releases'])],
 ]);
 outcomes($out, ['committed', 'conflict']); retireCurrent($registry, 'pr-910013');
+$registry = fixtureRegistry('enabled');
 $out = race([
     ['operation' => 'install', 'tenant' => 'pr-910014', 'token' => null, 'desired' => releaseState('a')],
     ['operation' => 'install', 'tenant' => 'pr-910015', 'token' => null, 'desired' => releaseState('b')],
@@ -196,6 +216,34 @@ outcomes($out, ['committed', 'quota']);
 verify(count(array_filter($registry->snapshot()['tenants'], fn($record) => $record['enabled'])) === 1, 'Concurrent quota was exceeded');
 retireCurrent($registry, 'pr-910014'); retireCurrent($registry, 'pr-910015');
 echo "PASS: independent MySQL writers serialize absent-create/retire, same-token upgrades and cross-tenant admission\n";
+
+// Independent fresh registry preserves all prior synthetic records rather than
+// pretending retirement frees data capacity or resetting a shared registry.
+$registry = fixtureRegistry('retained');
+$kept = $registry->compareAndSwap('pr-910020', null, releaseState('a'));
+$kept = $registry->retire('pr-910020', $kept['state_token']);
+for ($i = 910100; $i < 910120; ++$i) { $registry->retire('pr-' . $i, null); }
+$out = race([
+    ['operation' => 'install', 'tenant' => 'pr-910021', 'token' => null, 'desired' => releaseState('b')],
+    ['operation' => 'install', 'tenant' => 'pr-910022', 'token' => null, 'desired' => releaseState('c')],
+]);
+outcomes($out, ['committed', 'quota']);
+retireCurrent($registry, 'pr-910021'); retireCurrent($registry, 'pr-910022');
+refusal(fn() => $registry->compareAndSwap('pr-910023', null, releaseState('d')));
+verify($registry->tenant('pr-910020') === $kept, 'Global admission lost the original retired reservation');
+verify(count(array_filter($registry->snapshot()['tenants'], fn($record) => $record['releases'] !== [])) === 2, 'Retained data tenant bound exceeded');
+// Create a fresh synthetic orphan in this disposable database; never adopt or
+// delete existing user tables, and do not depend on another gate's setup.
+$orphanTable = $wpdb->base_prefix . 'pbin_pr_910099_pastes';
+verify($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->esc_like($orphanTable))) === null, 'Orphan fixture table already exists');
+sql("CREATE TABLE `$orphanTable` (id int NOT NULL, marker varchar(32) NOT NULL, PRIMARY KEY (id)) ENGINE=InnoDB");
+$fixtureRegistryTables[] = $orphanTable; // Exact newly owned fixture object only.
+sql("INSERT INTO `$orphanTable` (id, marker) VALUES (1, 'preserve-synthetic-orphan')");
+refusal(fn() => $registry->assertDataInventory());
+$registry->retire('pr-910099', null); // Empty tombstone still cannot own data.
+refusal(fn() => $registry->assertDataInventory());
+verify($wpdb->get_var("SELECT marker FROM `$orphanTable` WHERE id = 1") === 'preserve-synthetic-orphan', 'Inventory rejection changed orphan data');
+echo "PASS: real MySQL retained data admission keeps both retired slots, ignores empty tombstones, rejects orphan inventory and proves concurrent final-slot contention\n";
 
 // Real wpdb reconnect/replay fault injection on a separate disposable connection.
 class DisconnectOnceWpdb extends wpdb {
@@ -234,6 +282,6 @@ sql('START TRANSACTION'); refusal(fn() => $registry->retire('pr-910017', null));
 sql("ALTER TABLE `$table` ENGINE=MyISAM"); refusal(fn() => $registry->snapshot());
 sql("ALTER TABLE `$table` ENGINE=InnoDB");
 verify($registry->snapshot()['version'] === 2, 'Failed to restore valid registry');
-verify(fingerprints($table) === $before, 'Ordinary WordPress or application tables changed');
+verify(fingerprints($fixtureRegistryTables) === $before, 'Ordinary WordPress or application tables changed');
 echo "PASS: corrupt/oversize/unknown/non-InnoDB state fails closed; ordinary WordPress tables unchanged\n";
 echo "PASS: real WordPress wpdb/MySQL registry gate (not a Wasmer/controller deployment test)\n";

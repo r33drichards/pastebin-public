@@ -14,6 +14,8 @@ node wordpress/tests/single-user-editor.cjs
 node wordpress/tests/jsx-runner.cjs
 node --experimental-vm-modules wordpress/tests/effect-starter.cjs
 "$PHP" wordpress/tests/preview-tenancy.php
+"$PHP" wordpress/tests/preview-quota.php
+"$PHP" wordpress/tests/trusted-static-assets.php
 "$PHP" wordpress/tests/preview-bootstrap-state.php
 "$PHP" wordpress/tests/mysql-preview-registry.php
 "$PHP" wordpress/tests/preview-controller.php

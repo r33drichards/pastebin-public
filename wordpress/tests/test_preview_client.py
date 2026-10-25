@@ -144,6 +144,68 @@ class PolicyTest(unittest.TestCase):
             with self.assertRaises(client.Rejected):
                 self.policy.recipes(baseline, candidate)
 
+    def test_old_success_cannot_substitute_for_legacy_migration_gates(self):
+        required = {"Required offline legacy migration checks", "Real WordPress legacy migration MySQL gate"}
+        self.assertTrue(required.issubset(client.TEST_STEPS))
+        old_success = jobs()
+        build = next(job for job in old_success if job["name"].startswith("Build,"))
+        build["steps"] = [step for step in build["steps"] if step["name"] not in required]
+        with self.assertRaises(client.Rejected): self.policy.jobs(old_success, 23, 1, A)
+        for name in required:
+            for conclusion in ("skipped", "failure", "cancelled", None):
+                with self.subTest(name=name, conclusion=conclusion):
+                    value = jobs(); build = next(job for job in value if job["name"].startswith("Build,"))
+                    next(step for step in build["steps"] if step["name"] == name)["conclusion"] = conclusion
+                    with self.assertRaises(client.Rejected): self.policy.jobs(value, 23, 1, A)
+
+    def test_complete_migration_code_dependencies_and_fixtures_are_reviewed(self):
+        paths = ("wordpress/migration/import.php", "wordpress/migration/importer.php",
+                 "wordpress/migration/bootstrap.php", "wordpress/migration/tests/bootstrap.php",
+                 "wordpress/migration/bolt-export/main.go", "wordpress/migration/bolt-export/go.mod",
+                 "wordpress/migration/bolt-export/go.sum", "wordpress/migration/bolt-export/main_test.go",
+                 "wordpress/migration/tests/legacy-writer/go.mod", "wordpress/migration/tests/legacy-writer/go.sum",
+                 "wordpress/migration/tests/legacy-writer/main.go", "wordpress/migration/tests/synthetic.json",
+                 "wordpress/migration/tests/importer.php", "wordpress/migration/tests/mysql.php",
+                 "wordpress/ci/check-legacy-import-unit.sh", "wordpress/ci/check-legacy-import.sh")
+        for path in paths:
+            baseline = tree()
+            if path not in {entry["path"] for entry in baseline["tree"]}:
+                baseline["tree"].append({"path": path, "sha": B, "mode": "100644", "type": "blob"})
+            self.policy.recipes(baseline, baseline)
+            for operation in ("edit", "mode", "remove"):
+                with self.subTest(path=path, operation=operation):
+                    candidate = copy.deepcopy(baseline)
+                    entry = next(entry for entry in candidate["tree"] if entry["path"] == path)
+                    if operation == "edit": entry["sha"] = A
+                    elif operation == "mode": entry["mode"] = "100755"
+                    else: candidate["tree"].remove(entry)
+                    with self.assertRaises(client.Rejected): self.policy.recipes(baseline, candidate)
+        baseline = tree(); candidate = copy.deepcopy(baseline)
+        candidate["tree"].append({"path": "wordpress/migration/new-helper.php", "sha": A, "mode": "100644", "type": "blob"})
+        with self.assertRaises(client.Rejected): self.policy.recipes(baseline, candidate)
+
+    def test_missing_migration_recipe_is_rejected_even_in_identical_old_trees(self):
+        for path in ("wordpress/migration/import.php", "wordpress/migration/importer.php",
+                     "wordpress/migration/bootstrap.php",
+                     "wordpress/migration/bolt-export/go.mod", "wordpress/migration/bolt-export/go.sum",
+                     "wordpress/ci/check-legacy-import-unit.sh", "wordpress/ci/check-legacy-import.sh"):
+            with self.subTest(path=path):
+                incomplete = tree(); incomplete["tree"] = [entry for entry in incomplete["tree"] if entry["path"] != path]
+                with self.assertRaises(client.Rejected): self.policy.recipes(incomplete, incomplete)
+
+    def test_migration_workflow_pin_and_required_commands_remain_explicit(self):
+        workflow = (Path(__file__).resolve().parents[2] / client.CI_PATH).read_text()
+        self.assertIn('uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0', workflow)
+        self.assertIn("go-version: '1.24.8'", workflow)
+        for name, command in (
+            ("Required offline legacy migration checks", "bash wordpress/ci/check-legacy-import-unit.sh"),
+            ("Real WordPress legacy migration MySQL gate", "bash wordpress/ci/run-fixture.sh bash wordpress/ci/check-legacy-import.sh"),
+        ):
+            block = workflow.split('      - name: ' + name + '\n', 1)[1].split('      - name:', 1)[0]
+            self.assertIn('        run: ' + command, block)
+            self.assertNotIn('continue-on-error:', block)
+            self.assertNotIn('        if:', block)
+
     def test_changed_or_truncated_recipe_rejected(self):
         for change in [lambda t: t.update(truncated=True), lambda t: t["tree"].pop(),
                        lambda t: t["tree"][0].update(sha=A),
@@ -151,7 +213,15 @@ class PolicyTest(unittest.TestCase):
             value = tree(); change(value)
             with self.assertRaises(client.Rejected): self.policy.recipes(tree(), value)
         value = tree(); value["tree"].append({"path": "wordpress/pbin/runtime.php", "sha": A})
-        self.policy.recipes(tree(), value)  # Application edits are the intended payload.
+        self.policy.recipes(tree(), value)  # Non-write-path application edits remain eligible.
+
+    def test_all_quota_write_paths_are_pinned_to_reviewed_baseline(self):
+        self.assertEqual(len(client.QUOTA_WRITE_PATHS), 2)
+        for path in client.QUOTA_WRITE_PATHS:
+            candidate = tree()
+            next(entry for entry in candidate["tree"] if entry["path"] == path)["sha"] = A
+            with self.subTest(path=path), self.assertRaises(client.Rejected):
+                self.policy.recipes(tree(), candidate)
 
     def test_complete_controller_tree_is_part_of_reviewed_recipe(self):
         for path in ("wordpress/preview/mysql-registry.php", "wordpress/preview/control/rest.php",

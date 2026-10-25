@@ -108,3 +108,9 @@ exercise the filesystem protocol. They do not prove WordPress/MySQL or Wasmer
 behavior. A local real WordPress/MariaDB fixture was prepared, but this execution
 sandbox rejects server socket creation. The real HTTP/MySQL/browser CI and staging
 gates remain required and must not be reported as passed until executed.
+
+## Preview data bounds
+
+Preview document and limiter writes have fixed per-tenant application quotas.
+See [DATA-QUOTAS.md](DATA-QUOTAS.md) for byte/row limits, migration behavior,
+concurrency tests, physical-allocation caveats and retained-tenant accumulation.

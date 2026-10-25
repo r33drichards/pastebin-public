@@ -38,6 +38,7 @@ final class RecordingWpdb {
     public array $columns;
     public ?string $fail = null;
     public ?string $reconnect = null;
+    public array $dataTables = [];
     private ?string $before = null;
     public function __construct() {
         $this->columns = [];
@@ -84,6 +85,7 @@ final class RecordingWpdb {
     public function get_results(string $sql, string $format): ?array {
         expect($format === 'ARRAY_A', 'wpdb result format');
         if (!$this->event($sql)) { return null; }
+        if (str_starts_with($sql, 'SELECT TABLE_NAME')) { return array_map(fn($table) => ['TABLE_NAME' => $table], $this->dataTables); }
         if (str_starts_with($sql, 'SELECT ENGINE')) { return $this->exists ? [['ENGINE' => $this->engine, 'TABLE_COLLATION' => $this->collation]] : []; }
         if (str_starts_with($sql, 'SHOW COLUMNS')) { return $this->columns; }
         if (str_starts_with($sql, 'SELECT CONNECTION_ID')) { return [['connection_id' => (string) $this->connection, 'autocommit' => $this->autocommit]]; }
@@ -179,6 +181,34 @@ test('enabled, release and tombstone bounds are enforced atomically', function (
     rejects(fn() => $registry->compareAndSwap('pr-1', $a['state_token'], desired('b', $a['releases'])));
     $registry->retire('pr-2', null); rejects(fn() => $registry->retire('pr-3', null));
     expect($registry->tenant('pr-1') === $a, 'Admission failure changed existing state');
+});
+test('two retained data tenants exhaust capacity even after retirement', function () {
+    [$db, $registry] = fixture();
+    $one = $registry->compareAndSwap('pr-1', null, desired());
+    $registry->retire('pr-1', $one['state_token']);
+    for ($i = 10; $i < 30; ++$i) { $registry->retire('pr-' . $i, null); }
+    $two = $registry->compareAndSwap('pr-2', null, desired());
+    $two = $registry->retire('pr-2', $two['state_token']);
+    $before = $db->state;
+    rejects(fn() => $registry->compareAndSwap('pr-3', null, desired()));
+    expect($db->state === $before, 'Third data tenant changed retained state');
+    $registry->compareAndSwap('pr-2', $two['state_token'], desired('b', $two['releases']));
+    expect(count($registry->snapshot()['tenants']) === 22, 'Tombstones incorrectly consumed data slots');
+});
+test('provisioning inventory rejects unregistered, tombstone and foreign tables', function () {
+    [$db, $registry] = fixture();
+    $db->prefix = 'wp_';
+    $registry->assertDataInventory();
+    foreach (['wp_pbin_pr_1_pastes', 'wp_pbin_pr_01_pastes', 'foreign_pbin_pr_1_pastes', 'wp_pbin_pr_1_unknown'] as $table) {
+        $db->dataTables = [$table]; rejects(fn() => $registry->assertDataInventory());
+    }
+    $db->dataTables = ['wp_pbin_pr_1_pastes'];
+    $tombstone = $registry->retire('pr-1', null); rejects(fn() => $registry->assertDataInventory());
+    $record = $registry->compareAndSwap('pr-1', $tombstone['state_token'], desired());
+    $registry->assertDataInventory();
+    $registry->retire('pr-1', $record['state_token']); $registry->assertDataInventory();
+    $db->dataTables[] = 'wp_pbin_pr_2_quota'; rejects(fn() => $registry->assertDataInventory());
+    expect(count($db->dataTables) === 2, 'Inventory modified tables');
 });
 test('corrupt JSON, duplicate keys, unknown version and extra rows fail closed', function () {
     foreach (['{', '{"version":2,"tenants":[],"extra":0}', '{"version":2,"tenants":{},"version":2}', '{"version":3,"tenants":{}}', ' {"version":2,"tenants":{}}', str_repeat('x', 1048577)] as $json) {

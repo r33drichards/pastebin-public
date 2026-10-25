@@ -1,6 +1,7 @@
 <?php
 namespace Pbin\Preview\Control;
 require_once __DIR__ . '/storage.php';
+require_once __DIR__ . '/quota-recipe.php';
 
 final class Configuration {
     public Storage $storage;
@@ -58,10 +59,12 @@ final class Controller {
     public function rollback(string $tenant, string $token, string $revision): array {
         self::tenantName($tenant); self::token($token); self::digest($revision, 40);
         return $this->storage->locked(function () use ($tenant, $token, $revision): array {
+            $this->registry->assertDataInventory();
             $current = $this->current($tenant, $token);
             if ($current === null || !isset($current['releases'][$revision])) { throw new ControlException('Rollback revision is not retained'); }
             $release = $current['releases'][$revision];
             $this->packages::verifyExisting($this->releasePath($tenant, $revision), $revision, $release['artifact_sha256'], $release['manifest_sha256']);
+            QuotaRecipe::verify($this->releasePath($tenant, $revision) . '/pbin');
             $desired = ['enabled' => true, 'active' => $revision, 'releases' => $current['releases']];
             return self::envelope($tenant, $this->registry->compareAndSwap($tenant, $token, $desired));
         });
@@ -73,6 +76,7 @@ final class Controller {
         self::tenantName($tenant); self::digest($revision, 40); self::digest($digest, 64); self::token($token);
         if (!is_resource($stream) || ($length !== null && ($length <= 0 || $length > $this->packages::MAX_ARCHIVE_BYTES))) { throw new ControlException('Invalid or oversized archive body', 413); }
         return $this->storage->locked(function () use ($tenant, $revision, $digest, $token, $stream, $length): array {
+            $this->registry->assertDataInventory();
             $current = $this->current($tenant, $token);
             $oldRelease = $current['releases'][$revision] ?? null;
             if ($oldRelease !== null && $oldRelease['artifact_sha256'] !== $digest) { throw new ControlException('Immutable release digest differs', 409); }
@@ -123,6 +127,7 @@ final class Controller {
                     Storage::seal($destination);
                     $verified = $this->packages::verifyExisting($destination, $revision, $digest, $verified['manifest_sha256']);
                 }
+                QuotaRecipe::verify($destination . '/pbin');
                 $this->storage->usage();
                 $release = ['artifact_sha256' => $digest, 'manifest_sha256' => $verified['manifest_sha256']];
                 $releases = $current['releases'] ?? []; $releases[$revision] = $release;

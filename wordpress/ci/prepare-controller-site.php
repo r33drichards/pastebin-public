@@ -41,7 +41,7 @@ try {
         controllerFixtureCheck(mkdir($pbinControllerTarget, 0700) && mkdir($pbinControllerTarget . '/control', 0700));
         $pbinControllerSource = dirname(__DIR__) . '/preview';
         foreach (['controller.php', 'loader.php', 'selector.php', 'health.php', 'mysql-registry.php'] as $file) { controllerFixtureCheck(copy($pbinControllerSource . '/' . $file, $pbinControllerTarget . '/' . $file)); }
-        foreach (['controller.php', 'native-package.php', 'rest.php', 'storage.php'] as $file) { controllerFixtureCheck(copy($pbinControllerSource . '/control/' . $file, $pbinControllerTarget . '/control/' . $file)); }
+        foreach (['controller.php', 'native-package.php', 'quota-recipe.php', 'rest.php', 'static-assets.php', 'storage.php'] as $file) { controllerFixtureCheck(copy($pbinControllerSource . '/control/' . $file, $pbinControllerTarget . '/control/' . $file)); }
         controllerFixtureCheck(file_put_contents($pbinControllerMu . '/pbin-preview.php', "<?php\n\$GLOBALS['wpdb']->suppress_errors(true); // Fixture-only: never log SQL/credential material.\nrequire __DIR__ . '/pbin-preview/controller.php';\nrequire __DIR__ . '/pbin-preview/loader.php';\n") !== false);
     }
     require $pbinControllerLoad;

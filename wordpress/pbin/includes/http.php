@@ -41,6 +41,8 @@ final class PBIN_HTTP {
                     $this->text('Realtime collaboration is not supported', 501); break;
                 default: $this->text("404 not found.\n", 404);
             }
+        } catch (PreviewQuotaExceeded $error) {
+            $this->text($error->getMessage(), 507);
         } catch (OutOfBoundsException $error) {
             $this->text('', 404);
         } catch (Throwable $error) {

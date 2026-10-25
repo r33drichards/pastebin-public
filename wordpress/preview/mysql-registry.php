@@ -14,6 +14,7 @@ class RegistryCommitUncertain extends RegistryException {}
 final class MysqlRegistry {
     private const VERSION = 2;
     private const MAX_BYTES = 1048576;
+    public const MAX_DATA_TENANTS = 2;
     private object $db;
     private string $table;
     private array $limits;
@@ -59,6 +60,26 @@ final class MysqlRegistry {
     public function tenant(string $tenant): ?array {
         $this->tenantName($tenant);
         return $this->snapshot()['tenants'][$tenant] ?? null;
+    }
+
+    /** Provisioning/startup preflight, never a migration or adoption. All preview
+     * tables in this database must belong to an existing retained reservation.
+     * Out-of-band privileged DDL is not a supported alternate provisioner. */
+    public function assertDataInventory(): void {
+        $this->quiet(function (): void {
+            $this->schema();
+            $state = $this->load(false);
+            $prefix = $this->db->prefix ?? $this->db->base_prefix;
+            if (!is_string($prefix) || !preg_match('/\A[a-zA-Z0-9_]{1,43}\z/', $prefix)) { throw new RegistryException('Invalid data inventory prefix'); }
+            $tables = $this->rows("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOCATE('pbin_pr_', TABLE_NAME) > 0");
+            foreach ($tables as $table) {
+                $name = $table['TABLE_NAME'] ?? null;
+                if (!is_string($name) || !preg_match('/\A' . preg_quote($prefix, '/') . 'pbin_pr_([1-9][0-9]{0,9})_(?:pastes|diffs|snapshots|limits|quota)\z/', $name, $match)
+                    || empty($state['tenants']['pr-' . $match[1]]['releases'])) {
+                    throw new RegistryException('Unregistered or unsupported preview data tables; explicit inventory resolution required');
+                }
+            }
+        });
     }
 
     /**
@@ -234,14 +255,17 @@ final class MysqlRegistry {
         }
         $tenants = [];
         $enabled = 0;
+        $dataTenants = 0;
         foreach ($state['tenants'] as $tenant => $record) {
             $this->tenantName($tenant);
             if (!is_array($record)) { throw new RegistryException('Invalid tenant record'); }
             $entry = $this->record($record);
             $enabled += $entry['enabled'] ? 1 : 0;
+            $dataTenants += $entry['releases'] !== [] ? 1 : 0;
             $entry['releases'] = (object) $entry['releases'];
             $tenants[$tenant] = $entry;
         }
+        if ($dataTenants > self::MAX_DATA_TENANTS) { throw new RegistryException('Retained data tenant bound exceeded'); }
         if ($enabled > $this->limits['max_enabled']) { throw new RegistryException('Enabled tenant bound exceeded'); }
         ksort($tenants, SORT_STRING);
         $json = json_encode(['version' => self::VERSION, 'tenants' => (object) $tenants], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);

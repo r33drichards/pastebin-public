@@ -57,9 +57,13 @@ an absent install against retirement without depending on missing-row/gap locks;
 it also serializes admission across different tenants. No process-local/flock
 assumption, filesystem JSON mirror or cross-instance file lock is involved.
 
-The hard bounds are 1 MiB canonical JSON, 1024 tenants including tombstones,
-2 enabled tenants and 3 retained releases per tenant. Constructor overrides may
-only tighten the latter three. A bound failure rolls back; nothing is purged.
+The hard bounds are 1 MiB canonical JSON, 1024 registry records including empty
+tombstones, 2 enabled tenants, 2 retained/data-bearing tenants in total and 3
+retained releases per tenant. Retired records with releases still occupy a data
+slot, so retirement does not admit a third distinct tenant. The retained-data
+cap cannot be increased through constructor options; other configurable bounds
+may only tighten their defaults. See [data quotas](DATA-QUOTAS.md) for logical
+text limits and the distinction from physical database storage. A bound failure rolls back; nothing is purged.
 Filesystem/storage/compute limits remain controller responsibilities. This DB
 transaction does not atomically commit a filesystem rename, and the loader must
 never execute a record until its immutable files are complete and verifiable.

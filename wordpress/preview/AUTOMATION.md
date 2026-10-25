@@ -34,6 +34,9 @@ an event's prose. It checks repository identity, open PR and exact current head,
 same-repository head, CI workflow numeric ID and `.github/workflows/ci.yml` path,
 successful completed `pull_request` run, unique PR association, both expected
 successful jobs from the current attempt, and all named critical test steps.
+This includes `Required offline legacy migration checks` and
+`Real WordPress legacy migration MySQL gate`; an older successful run without
+those completed gates is rejected.
 Skipped tests are failures for deployment purposes. REST run paths may include a
 bounded `@ref` suffix; only the exact expected path before it is accepted, and the
 numeric workflow resource must independently report the exact path and active
@@ -41,8 +44,9 @@ state. The suffix is never used as a checkout ref or an authorization source.
 
 Both the PR head and the recorded PR base must have exactly the reviewed baseline's
 workflow, packager, complete trusted control-plane tree (`wordpress/preview`),
-and complete test/fixture trees (`wordpress/ci`,
-`wordpress/tests`, `e2e`, `acceptance`). Tree SHA comparisons include additions,
+and complete migration/test/fixture trees (`wordpress/migration`, `wordpress/ci`,
+`wordpress/tests`, `e2e`, `acceptance`). Migration entry points, dependency pins
+and gate scripts must also exist in the reviewed recipe. Tree SHA comparisons include additions,
 deletions and modes, not only existing filenames. Truncated API results fail closed.
 This is deliberately strict: legitimate changes to tests or the CI recipe require
 reviewing a new control baseline, not a bypass or an automatically accepted pin.
@@ -213,9 +217,10 @@ python3 -m unittest discover -s wordpress/tests -p 'test_preview_client.py' -v
 bash wordpress/ci/check-unit.sh
 ```
 
-The existing CI recipe remains unchanged, so its `check-unit.sh` does not yet run
-the new client tests. Run these tests separately during control-plane review;
-adding them to CI changes the reviewed recipe and needs a new control baseline.
+`check-unit.sh` discovers these client tests. The separately named offline and
+real-MySQL migration gates are additional mandatory steps, not replacements for
+existing assertions. This recipe change needs a newly reviewed control baseline;
+do not automatically advance a privileged client's pin.
 These tests use only fake records, synthetic archives and injected transports.
 They are not real GitHub or Wasmer acceptance tests.
 

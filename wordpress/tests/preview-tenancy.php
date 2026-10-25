@@ -75,48 +75,8 @@ function wp_generate_uuid4(): string { static $counter = 0; return sprintf('0000
 function wp_salt(string $scheme): string { return 'test-only-public-salt'; }
 }
 
-final class PreviewFixtureDB {
-    public string $prefix = 'wp_fixture_';
-    public string $last_error = '';
-    public array $rows = [];
-    public array $touched = [];
-    public array $queries = [];
-    public function get_charset_collate(): string { return 'DEFAULT CHARACTER SET utf8mb4'; }
-    public function esc_like(string $value): string { return $value; }
-    public function prepare(string $query, ...$values): string {
-        foreach ($values as $value) {
-            $query = preg_replace_callback('/%[sdf]/', fn($match) => $match[0] === '%s' ? "'" . str_replace("'", "''", (string) $value) . "'" : (string) $value, $query, 1);
-        }
-        return $query;
-    }
-    public function get_var(string $query): string {
-        check(preg_match("/^SHOW TABLES LIKE '([^']+)'$/", $query, $match) === 1, 'Unexpected migration query');
-        $this->touched[] = $match[1];
-        return $match[1];
-    }
-    public function insert(string $table, array $row): int { $this->touched[] = $table; $this->rows[$table][$row['id']] = $row; return 1; }
-    public function update(string $table, array $row, array $where): int {
-        $this->touched[] = $table;
-        $this->rows[$table][$where['id']] = array_replace($this->rows[$table][$where['id']], $row);
-        return 1;
-    }
-    public function get_row(string $query, $format): ?array {
-        check(preg_match("/FROM (\\w+) WHERE id = '([^']+)'/", $query, $match) === 1, 'Unexpected row query');
-        $this->touched[] = $match[1];
-        return $this->rows[$match[1]][$match[2]] ?? null;
-    }
-    public function get_results(string $query, $format): array {
-        check(preg_match("/FROM (\\w+) WHERE paste_id = '([^']+)'/", $query, $match) === 1, 'Unexpected list query');
-        $this->touched[] = $match[1];
-        return array_values(array_filter($this->rows[$match[1]] ?? [], fn($row) => $row['paste_id'] === $match[2]));
-    }
-    public function query(string $query): int {
-        $this->queries[] = $query;
-        check(preg_match('/(?:INTO|UPDATE|FROM) (\w+)/', $query, $match) === 1, 'Unexpected limiter query');
-        $this->touched[] = $match[1];
-        return 1;
-    }
-}
+require_once __DIR__ . '/preview-quota-fixture.php';
+final class PreviewFixtureDB extends PreviewQuotaFixtureDB {}
 
 // Optional real-MySQL CI gate. Run only against the disposable localhost fixture.
 // Every invocation is a distinct PHP process, just like distinct HTTP requests.
@@ -166,7 +126,7 @@ if (str_starts_with($mode, '--wordpress-context=')) {
         $defaultSchema = get_option('pbin_schema_version', null);
         $defaultMarker = get_option('pbin_fixture_marker', null);
         PBIN_Store::install();
-        check(get_option($instance->optionKey('schema_version')) === PBIN_Store::SCHEMA_VERSION, 'Real schema option missing');
+        check(get_option($instance->optionKey('schema_version')) === PBIN_Store::schemaVersion(), 'Real schema option missing');
         $tables = [];
         foreach (['pastes', 'diffs', 'snapshots', 'limits'] as $name) {
             $table = $prefix . $name;
@@ -198,7 +158,7 @@ if (str_starts_with($mode, '--wordpress-context=')) {
             check(($pbinFixtureInput['key'] ?? null) === $pbinFixtureKey, 'Use expect-missing for cross-tenant reads');
             foreach ($getters as $type => $method) { check($store->$method($pbinFixtureInput[$type]['ID']) === $pbinFixtureInput[$type], 'Actual persisted ' . $type . ' changed'); }
             check(get_option($instance->optionKey('fixture_marker')) === ($pbinFixtureInput['marker'] ?? null), 'Actual tenant option changed');
-            check(get_option($instance->optionKey('schema_version')) === PBIN_Store::SCHEMA_VERSION, 'Actual schema option changed');
+            check(get_option($instance->optionKey('schema_version')) === PBIN_Store::schemaVersion(), 'Actual schema option changed');
         } else {
             check(($pbinFixtureInput['key'] ?? null) !== $pbinFixtureKey, 'Cross-tenant negative test requires another tenant');
             foreach ($getters as $type => $method) { expectedException(fn() => $store->$method($pbinFixtureInput[$type]['ID']), 'Cross-tenant ' . $type . ' visibility', OutOfBoundsException::class); }
@@ -337,6 +297,19 @@ if (str_starts_with($mode, '--loader=')) {
             echo json_encode(['case' => $case, 'loaded' => false, 'rejected' => true, 'simulation' => true]);
         });
     }
+    if ($case === 'retained-assets') {
+        $retainedRuntime = $root . '/releases/pr-101/' . PREVIEW_TEST_OLD . '/pbin/runtime.php';
+        $retainedOriginal = file_get_contents($retainedRuntime);
+        file_put_contents($retainedRuntime, '<?php throw new \\RuntimeException("Retained package PHP must never execute");');
+        ob_start();
+        register_shutdown_function(static function () use ($retainedRuntime, $retainedOriginal): void {
+            $body = ob_get_clean(); file_put_contents($retainedRuntime, $retainedOriginal);
+            check($body === 'const release = ' . json_encode(PREVIEW_TEST_OLD) . ';', 'Trusted retained asset output changed');
+            check(!class_exists('Pbin\\Plugin\\Instance', false), 'Retained asset loaded package PHP');
+            check($GLOBALS['test_actions'] === [], 'Retained asset registered branch hooks/migrations');
+            echo json_encode(['case' => 'retained-assets', 'loaded' => false, 'simulation' => true]);
+        });
+    }
     $loader = dirname(__DIR__) . '/preview/loader.php';
     if ($case !== 'native-cli') {
         $source = file_get_contents($loader);
@@ -346,6 +319,8 @@ if (str_starts_with($mode, '--loader=')) {
         file_put_contents($loader, $source);
         copy(dirname(__DIR__) . '/preview/selector.php', $root . '/control/selector.php');
         copy(dirname(__DIR__) . '/preview/health.php', $root . '/control/health.php');
+        fixtureDirectory($root . '/control/control');
+        copy(dirname(__DIR__) . '/preview/control/static-assets.php', $root . '/control/control/static-assets.php');
     }
     require $loader;
     $loaded = class_exists('Pbin\\Plugin\\Instance', false);

@@ -24,7 +24,9 @@ try {
         require_once __DIR__ . '/control/controller.php';
         $configuration = Control\Configuration::wordpress(false);
         $configuration->storage->ready();
-        $registry = (new MysqlRegistry($GLOBALS['wpdb']))->snapshot();
+        $registryStore = new MysqlRegistry($GLOBALS['wpdb']);
+        $registryStore->assertDataInventory();
+        $registry = $registryStore->snapshot();
     } elseif (PBIN_PREVIEW_REGISTRY_BACKEND === 'file') {
         // Explicit fixture/compatibility mode only; never a MySQL failure fallback.
         if (!is_file($root . '/registry.json') || is_link($root . '/registry.json')) { throw new \RuntimeException('Preview registry unavailable'); }
@@ -43,6 +45,20 @@ try {
     add_filter('site_option_active_sitewide_plugins', static function ($plugins) use ($normalPlugin) {
         unset($plugins[$normalPlugin]); return $plugins;
     });
+    if ($context['request_base_path'] !== $context['base_path']) {
+        // Retained/current immutable assets never execute any package PHP,
+        // including old releases which predate the quota compatibility floor.
+        require_once __DIR__ . '/control/static-assets.php';
+        header('X-Pbin-Instance: ' . $context['key']);
+        header('X-Pbin-Revision: ' . $context['revision']);
+        header('X-Robots-Tag: noindex, nofollow, noarchive');
+        $relative = substr($path, strlen($context['request_base_path'] . '/static/'));
+        \Pbin\Assets\StaticAssets::serve($context['plugin_dir'], $relative, static fn($route) =>
+            str_starts_with($route, '/static/') ? $context['request_base_path'] . $route : $context['base_path'] . $route);
+        exit;
+    }
+    // No self-asserted package flag can grant writable compatibility.
+    if (PBIN_PREVIEW_REGISTRY_BACKEND === 'mysql') { Control\QuotaRecipe::verify($context['plugin_dir']); }
     // All release paths were validated before any branch PHP is included.
     require $context['plugin_dir'] . '/runtime.php';
     \Pbin\Plugin\bootstrap(new \Pbin\Plugin\Instance(
